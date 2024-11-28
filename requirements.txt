@@ -9,3 +9,4 @@ scikit-learn       # Works well with joblib and pandas
 openpyxl         # For reading and writing Excel files
 xgboost           # Stable version for classification tasks
 imbalanced-learn # Compatible with scikit-learn for SMOTE
+matplotlib
