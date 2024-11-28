@@ -22,6 +22,7 @@ from tensorflow.keras.models import load_model
 import joblib
 
 
+
 # Set a random seed for reproducibility
 def set_random_seed(seed_value=42):
     np.random.seed(seed_value)
@@ -36,7 +37,7 @@ training_file_path = os.path.join(MAINFOLDER, "Training", "Training.xlsx")  # FI
 test_file_path = os.path.join(MAINFOLDER, "24hrData", "Dailydata.xlsx")  # DAILY DATA
 excel_file_path = os.path.join(MAINFOLDER, "Breakdownrecords.xlsx")  # Recording excel for BD
 folderpath = os.path.join(MAINFOLDER, "TemporaryData")  # Temporary dump files collector
-
+threshold_file_path = os.path.join(MAINFOLDER,"Thresholds.xlsx") #
 
 
 # Define the path to save models within the main folder
@@ -781,6 +782,171 @@ def display_ui():
 if __name__ == "__main__":
     display_ui()
 
+#..........................................Trend..............................
+
+
+
+
+
+
+
+import matplotlib.pyplot as plt
+# Mapping for parameters to descriptive names
+parameter_mapping = {
+    'a2': 'Acceleration',
+    'av2': 'Axial Velocity',
+    'vv2': 'Vertical Velocity',
+    'hv2': 'Horizontal Velocity',
+    't2': 'Temperature',
+    'd2': 'Audio'
+}
+
+# Column types with "All" option for UI
+column_types_ui = ['All'] + list(parameter_mapping.values())
+
+# Reverse mapping for internal logic
+reverse_parameter_mapping = {v: k for k, v in parameter_mapping.items()}
+
+# Streamlit UI
+st.title("Trend Visualization for Sensor Data")
+
+# Validate files
+if not os.path.exists(test_file_path) or not os.path.exists(threshold_file_path):
+    st.error("Required files not found! Ensure the test and threshold file paths are correct.")
+else:
+    try:
+        # Load test and threshold data
+        test_df = pd.read_excel(test_file_path)
+        threshold_df = pd.read_excel(threshold_file_path)
+
+        if test_df.empty:
+            st.warning("NO DATA in the test file.")
+        else:
+            # Extract alternate sensor names
+            sensor_mapping = threshold_df[['Asset name', 'Sensor name']].drop_duplicates()
+            asset_to_sensor = dict(zip(sensor_mapping['Asset name'], sensor_mapping['Sensor name']))
+
+            # UI filter with alternate names
+            sensor_names = list(asset_to_sensor.values())
+            selected_sensor_name = st.selectbox("Select the sensor", sensor_names, index=0)
+
+            # Map selected sensor name back to the asset name
+            selected_asset = next(asset for asset, sensor in asset_to_sensor.items() if sensor == selected_sensor_name)
+
+            selected_column_ui = st.selectbox("Select parameter", column_types_ui, index=0)
+
+            # Map the selected UI parameter back to its internal name
+            if selected_column_ui == 'All':
+                selected_column = 'All'
+            else:
+                selected_column = reverse_parameter_mapping[selected_column_ui]
+
+            # Check if test data contains the required columns
+            if selected_column == 'All':
+                asset_columns = [f"{selected_asset}_{param}" for param in parameter_mapping.keys()]
+            else:
+                asset_columns = [f"{selected_asset}_{selected_column}"]
+
+            if not all(col in test_df.columns for col in asset_columns):
+                st.warning("Selected asset or columns not found in the test dataset.")
+            else:
+                # Extract relevant data for the selected asset and column type(s)
+                time_data = test_df['Time']
+                date_data = test_df['Date']
+                datetime_data = pd.to_datetime(date_data + ' ' + time_data, format='%d-%m-%Y %I:%M %p')
+
+                # Determine start and end dates for the X-axis label
+                start_date = datetime_data.min().strftime('%d-%m-%Y')
+                end_date = datetime_data.max().strftime('%d-%m-%Y')
+
+                # Generate hourly tick labels
+                hourly_ticks = pd.date_range(start=datetime_data.min(), end=datetime_data.max(), freq='H')
+
+                # Prepare the plot
+                plt.figure(figsize=(12, 6))
+
+                if selected_column == 'All':
+                    # Plot all parameters for the selected asset
+                    for param, display_name in parameter_mapping.items():
+                        column_name = f"{selected_asset}_{param}"
+                        column_data = test_df[column_name]
+                        plt.plot(datetime_data, column_data, linestyle='-', label=display_name)
+                else:
+                    # Plot the specific parameter
+                    column_data = test_df[f"{selected_asset}_{selected_column}"]
+                    plt.plot(datetime_data, column_data, linestyle='-', label=selected_column_ui)
+
+                    # Get threshold values for the selected asset and parameter
+                    threshold_row = threshold_df[
+                        (threshold_df['Asset name'] == selected_asset) &
+                        (threshold_df['Parameter'] == selected_column)
+                    ]
+                    if not threshold_row.empty:
+                        caution_value = threshold_row['Caution'].values[0]
+                        warning_value = threshold_row['Warning'].values[0]
+
+                        # Add horizontal lines for caution and warning thresholds
+                        plt.axhline(y=caution_value, color='orange', linestyle='--', label="Caution Threshold")
+                        plt.axhline(y=warning_value, color='red', linestyle='--', label="Warning Threshold")
+
+                # Configure the plot
+                plt.xlabel(f"Time ({start_date} - {end_date})")
+                plt.ylabel("Values")
+                plt.title(f"Trend for {selected_sensor_name} - {selected_column_ui}")
+                plt.xticks(hourly_ticks, [tick.strftime('%I %p') for tick in hourly_ticks], rotation=45)
+                plt.grid(True)
+                plt.legend(loc='upper left')  # Place the legend in the top-left corner
+                plt.tight_layout()
+
+                # Display the plot
+                st.pyplot(plt)
+
+                # Add functionality for threshold crossing counts
+                warning_counts = {}
+                caution_counts = {}
+
+                for param, display_name in parameter_mapping.items():
+                    column_name = f"{selected_asset}_{param}"
+                    threshold_row = threshold_df[
+                        (threshold_df['Asset name'] == selected_asset) &
+                        (threshold_df['Parameter'] == param)
+                    ]
+
+                    if not threshold_row.empty:
+                        caution_value = threshold_row['Caution'].values[0]
+                        warning_value = threshold_row['Warning'].values[0]
+
+                        # Count how many times the parameter crosses caution and warning thresholds
+                        caution_counts[display_name] = (test_df[column_name] > caution_value).sum()
+                        warning_counts[display_name] = (test_df[column_name] > warning_value).sum()
+                    else:
+                        caution_counts[display_name] = 0
+                        warning_counts[display_name] = 0
+
+                
+                
+                # Combine threshold crossing counts into a single table
+                combined_df = pd.DataFrame(
+                    {
+                        "Parameter": list(parameter_mapping.values()),
+                        "Caution Crossings": [caution_counts[display_name] for display_name in parameter_mapping.values()],
+                        "Warning Crossings": [warning_counts[display_name] for display_name in parameter_mapping.values()]
+                    }
+                )
+                
+               # Create a new table with Sensor Name displayed only once
+                sensor_row = pd.DataFrame({"Parameter": ["Sensor Name"], "Caution Crossings": [selected_sensor_name], "Warning Crossings": [""]})
+                combined_df = pd.concat([sensor_row, combined_df], ignore_index=True)
+
+                # Adjust the column names
+                combined_df.columns = ["Parameter", "Caution Crossings", "Warning Crossings"]
+
+                # Display the combined table
+                st.markdown("### Threshold Crossing frequency")
+                st.table(combined_df.T)
+
+    except Exception as e:
+        st.error(f"Error processing the files: {e}")
 
 
 
