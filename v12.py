@@ -21,6 +21,11 @@ import tensorflow as tf
 from tensorflow.keras.models import load_model
 import joblib
 
+#....CHANGED...........................................................................................................
+if "check_bd_clicked" not in st.session_state:
+    st.session_state["check_bd_clicked"] = False
+if "bd_output" not in st.session_state:
+    st.session_state["bd_output"] = ""
 
 
 # Set a random seed for reproducibility
@@ -286,10 +291,10 @@ def train_ensemble_model(training_file_path, model_folder_path):
 
     def build_nn_model():
         model = Sequential()
-        model.add(Dense(64, activation='relu', input_shape=(X_resampled.shape[1],)))
+        model.add(Dense(128, activation='relu', input_shape=(X_resampled.shape[1],)))
         model.add(Dropout(0.2))
-        #model.add(Dense(64, activation='relu'))
-        #model.add(Dropout(0.2))
+        model.add(Dense(64, activation='relu'))
+        model.add(Dropout(0.2))
         model.add(Dense(32, activation='relu'))
         model.add(Dense(4, activation='softmax'))  # 4 output units for the 4 classes
         model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])  # Use sparse_categorical_crossentropy
@@ -368,15 +373,24 @@ def predict_ensemble(test_file_path, model_folder_path):
 # Streamlit app UI
 st.title("Breakdown Code Classification")
 
-if st.button("Check BD Classification"):
-    #training_file_path = "path/to/training_file.xlsx"  # Update the path
-    #test_file_path = "path/to/test_file.xlsx"  # Update the path
-    #model_folder_path = "path/to/model_folder"  # Update the path
 
-    with st.spinner("Training the model and making predictions..."):
+#...CHNAGED................................................................................................................................................
+
+if st.button("Check BD Classification"):
+    with st.spinner("Checking breakdown..."):
         #train_ensemble_model(training_file_path, model_folder_path)  # Train the model
         result = predict_ensemble(test_file_path, model_folder_path)  # Predict breakdown
-
+        
+        # Store the result in session state
+        st.session_state["bd_output"] = result
+        
+        # Update session state based on the output
+        if result != "No BD predicted":
+            st.session_state["check_bd_clicked"] = True
+        else:
+            st.session_state["check_bd_clicked"] = False
+    
+    # Display the result
     st.write(result)
     st.success("Prediction complete!")
 
@@ -492,52 +506,96 @@ def predict_time(test_file_path):
             time_to_breakdown_with_time.append(adjusted_time_to_bd)
         return time_to_breakdown_with_time
 
-   
-    def find_minimum_and_maximum_time(time_to_breakdown_with_time):
+
+
+#CHANGE.........................................................................................................................
+    def find_minimum_maximum_and_mode_interval(time_to_breakdown_with_time):
         # Filter out negative times
         positive_times = [time for time in time_to_breakdown_with_time if time >= 0]
     
-        #if not positive_times:
-            #return "No positive breakdown times available."
+        if not positive_times:
+            return None, None, None, None  # Handle no positive breakdown times case
     
+        # Calculate minimum and maximum times
         min_time = min(positive_times)
-        max_time = max(time_to_breakdown_with_time)
-        
-        return min_time, max_time
+        max_time = max(positive_times)
     
+        # Define intervals of 5 units
+        interval_start = min_time
+        interval_end = max_time + 5  # Extend range to include the last value
+        bins = []
+        frequencies = []
+    
+        while interval_start < interval_end:
+            # Create interval range
+            interval = (interval_start, interval_start + 5)
+            bins.append(interval)
+    
+            # Count occurrences within the interval
+            frequency = sum(1 for time in positive_times if interval[0] <= time < interval[1])
+            frequencies.append(frequency)
+    
+            # Move to the next interval
+            interval_start += 5
+    
+        # Find the mode interval (highest frequency)
+        max_frequency = max(frequencies)
+        mode_index = frequencies.index(max_frequency)
+        mode_interval = bins[mode_index]
+    
+        return min_time, max_time, mode_interval, max_frequency
+
+
+
    
     try:
         # Load and preprocess the test data
         df, X_test, serial_numbers, times = load_test_data(test_file_path)
         X_test_scaled = preprocess_test_data(X_test)
-
+    
         # Make predictions
         predictions = predict_time_to_breakdown(X_test_scaled)
         predictions_with_time = calculate_time_difference(times, predictions)
-
-        # Find the minimum and maximum predicted times
-        min_time, max_time = find_minimum_and_maximum_time(predictions_with_time)
-
-        # Format the output as a range in hours
-        return f"Breakdown time range (w.r.t 5:30 AM ): {min_time:.2f} to {max_time:.2f} hours"
+    
+        # Find the minimum, maximum, and mode interval
+        min_time, max_time, mode_interval, mode_frequency = find_minimum_maximum_and_mode_interval(predictions_with_time)
+    
+        if min_time is None or max_time is None or mode_interval is None:
+            return "No positive breakdown times available."
+    
+        # Calculate the midpoint of the mode interval
+        mode_midpoint = (mode_interval[0] + mode_interval[1]) / 2
+    
+        # Define weights for min and mode
+        W_min = 0.7
+        W_mode = 0.3
+    
+        # Calculate weighted breakdown time
+        weighted_breakdown_time = (W_min * min_time) + (W_mode * mode_midpoint)
+    
+        # Return the final weighted breakdown time
+        return (f"Breakdown might occur in approximately w.r.t 6 AM yesterday: "
+                f"{weighted_breakdown_time:.2f} hours")
     except Exception as e:
         return f"Error: {e}"
 
+
+   
     
 
 
 # Streamlit app UI
 st.title("Time Prediction")
 
-# Button to train the model and predict time
-if st.button("Predict Time"):
-    # Train the model (if needed) and predict time
-    with st.spinner("Training the model and making predictions..."):
-        #train_model(training_file_path)  # Train the model (use predefined training data)
-        result = predict_time(test_file_path)  # Predict time using predefined test data
-    
-    st.write(f"Predicted Time to Breakdown: {result}")
-    st.success("Prediction complete!")
+if st.button("Predict Time", disabled=not st.session_state["check_bd_clicked"]):
+    if st.session_state["bd_output"] == "No BD predicted":
+        st.error("No breakdown predicted. Cannot proceed with time prediction.")
+    else:
+        with st.spinner("Training the model and making predictions..."):
+            #train_model(training_file_path)
+            result = predict_time(test_file_path)  # Predict time using predefined test data
+        st.write(f"Predicted Time to Breakdown: {result}")
+        st.success("Prediction complete!")
 
 
 
