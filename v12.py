@@ -278,20 +278,20 @@ def train_ensemble_model(training_file_path, model_folder_path):
         X_scaled = scaler.fit_transform(X)
 
         # Save the scaler
-        joblib.dump(scaler, os.path.join(model_folder_path, "scaler_new.pkl"))
+        joblib.dump(scaler, os.path.join(model_folder_path, "scaler_nn1.pkl"))
 
         # Split into training and validation sets
         X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.01, random_state=42, shuffle=True)
 
         # Handle imbalance with SMOTE
-        smote = SMOTE(random_state=42)
-        X_resampled, y_resampled = smote.fit_resample(X_train, y_train)
+        #smote = SMOTE(random_state=42)
+        #X_resampled, y_resampled = smote.fit_resample(X_train, y_train)
         
-        return X_resampled, X_test, y_resampled, y_test
+        return X_train, X_test, y_train, y_test
 
     def build_nn_model():
         model = Sequential()
-        model.add(Dense(128, activation='relu', input_shape=(X_resampled.shape[1],)))
+        model.add(Dense(128, activation='relu', input_shape=(X_train.shape[1],)))
         model.add(Dropout(0.2))
         model.add(Dense(64, activation='relu'))
         model.add(Dropout(0.2))
@@ -305,7 +305,7 @@ def train_ensemble_model(training_file_path, model_folder_path):
 
     # Load and preprocess data
     X, y = load_data(training_file_path)
-    X_resampled, X_test, y_resampled, y_test = preprocess_data(X, y)
+    X_train, X_test, y_train, y_test = preprocess_data(X, y)
 
     # Class weights for Keras model
     class_weights_nn = {0: 1.0, 1: 30, 2: 30, 3: 30}
@@ -314,22 +314,22 @@ def train_ensemble_model(training_file_path, model_folder_path):
     nn_model = KerasClassifier(model=build_nn_model, epochs=50, batch_size=32, verbose=0, class_weight=class_weights_nn)
 
     # Calculate sample weights for XGBoost
-    sample_weights = np.array([class_weights_nn[int(label)] for label in y_resampled])
+    #sample_weights = np.array([class_weights_nn[int(label)] for label in y_resampled])
 
     # XGBoost model
-    xgb_model = xgb.XGBClassifier(objective='multi:softmax', num_class=4, eval_metric='mlogloss', sample_weight=sample_weights, random_state=42)
+    #xgb_model = xgb.XGBClassifier(objective='multi:softmax', num_class=4, eval_metric='mlogloss', sample_weight=sample_weights, random_state=42)
 
     # Ensemble model
-    ensemble_model = VotingClassifier(estimators=[
-        ('xgb', xgb_model),
-        ('nn', nn_model)
-    ], voting='soft')
+    #ensemble_model = VotingClassifier(estimators=[
+    #    ('xgb', xgb_model),
+    #    ('nn', nn_model)
+    #], voting='soft')
 
     # Train the ensemble model
-    ensemble_model.fit(X_resampled, y_resampled)
+    nn_model.fit(X_train, y_train)
 
     # Save the trained model
-    joblib.dump(ensemble_model, os.path.join(model_folder_path, "ensemble_model_new.pkl"))
+    joblib.dump(nn_model, os.path.join(model_folder_path, "nn_model1.pkl"))
     st.success("Ensemble model training completed and saved!")
 
 # Define the prediction function
@@ -340,12 +340,12 @@ def predict_ensemble(test_file_path, model_folder_path):
         return df, X_test
 
     def preprocess_test_data(X_test):
-        scaler = joblib.load(os.path.join(model_folder_path, "scaler_new.pkl"))
+        scaler = joblib.load(os.path.join(model_folder_path, "scaler_nn1.pkl"))
         X_test_scaled = scaler.transform(X_test)
         return X_test_scaled
 
     def predict(X_test_scaled):
-        ensemble_model = joblib.load(os.path.join(model_folder_path, "ensemble_model_new.pkl"))
+        ensemble_model = joblib.load(os.path.join(model_folder_path, "nn_model1.pkl"))
         predictions = ensemble_model.predict(X_test_scaled)
         return predictions
 
