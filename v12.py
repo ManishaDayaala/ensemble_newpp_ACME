@@ -308,7 +308,7 @@ def train_ensemble_model(training_file_path, model_folder_path):
     X_train, X_test, y_train, y_test = preprocess_data(X, y)
 
     # Class weights for Keras model
-    class_weights_nn = {0: 1.0, 1: 30, 2: 30, 3: 30}
+    class_weights_nn = {0: 1.0, 1: 80, 2: 90, 3: 80}
 
     # Build Keras model
     nn_model = KerasClassifier(model=build_nn_model, epochs=50, batch_size=32, verbose=0, class_weight=class_weights_nn)
