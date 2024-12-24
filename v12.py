@@ -911,11 +911,11 @@ else:
                 # Extract relevant data for the selected asset and column type(s)
                 time_data = test_df['Time']
                 date_data = test_df['Date']
-                datetime_data = pd.to_datetime(date_data + ' ' + time_data, format='%d-%m-%Y %I:%M %p')
+                datetime_data = pd.to_datetime(date_data + ' ' + time_data, format='%d %b %Y %I:%M %p')
 
                 # Determine start and end dates for the X-axis label
-                start_date = datetime_data.min().strftime('%d-%m-%Y')
-                end_date = datetime_data.max().strftime('%d-%m-%Y')
+                start_date = datetime_data.min().strftime('%d %b %Y')
+                end_date = datetime_data.max().strftime('%d %b %Y')
 
                 # Generate hourly tick labels
                 hourly_ticks = pd.date_range(start=datetime_data.min(), end=datetime_data.max(), freq='H')
