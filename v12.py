@@ -1,3 +1,10 @@
+
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[ ]:
+
+
 #!/usr/bin/env python
 # coding: utf-8
 
@@ -21,13 +28,6 @@ import tensorflow as tf
 from tensorflow.keras.models import load_model
 import joblib
 
-#....CHANGED...........................................................................................................
-if "check_bd_clicked" not in st.session_state:
-    st.session_state["check_bd_clicked"] = False
-if "bd_output" not in st.session_state:
-    st.session_state["bd_output"] = ""
-
-
 # Set a random seed for reproducibility
 def set_random_seed(seed_value=42):
     np.random.seed(seed_value)
@@ -44,10 +44,14 @@ excel_file_path = os.path.join(MAINFOLDER, "Breakdownrecords.xlsx")  # Recording
 folderpath = os.path.join(MAINFOLDER, "TemporaryData")  # Temporary dump files collector
 threshold_file_path = os.path.join(MAINFOLDER,"Thresholds.xlsx") #
 
-
 # Define the path to save models within the main folder
 model_folder_path = os.path.join(MAINFOLDER, "Models")
 
+#....CHANGED...........................................................................................................
+if "check_bd_clicked" not in st.session_state:
+    st.session_state["check_bd_clicked"] = False
+if "bd_output" not in st.session_state:
+    st.session_state["bd_output"] = ""
 
 uploaded_files = []  # List to keep track of uploaded files
 
@@ -55,13 +59,10 @@ uploaded_files = []  # List to keep track of uploaded files
 st.title("Breakdown Predictor")
 st.markdown("Upload your files, and they will be preprocessed accordingly.")
 
+# File Upload Section
+uploaded_files = st.file_uploader("Upload Excel files", type=['xlsx'], accept_multiple_files=True)
 
-# Initialize file uploader key in session state
-if "file_uploader_key" not in st.session_state:
-    st.session_state["file_uploader_key"] = 0
-
-# File uploader
-uploaded_files = st.file_uploader("Upload your files", accept_multiple_files=True, key=str(st.session_state["file_uploader_key"]))
+#uploaded_files = st.file_uploader("Drop files here:", accept_multiple_files=True, on_change=lambda: on_file_drop(uploaded_files))
 
 
 # Show status
@@ -108,6 +109,13 @@ def save_files(uploaded_files):
 
 
 
+# Initialize file uploader key in session state
+if "file_uploader_key" not in st.session_state:
+    st.session_state["file_uploader_key"] = 0
+
+# File uploader
+uploaded_files = st.file_uploader("Upload your files", accept_multiple_files=True, key=str(st.session_state["file_uploader_key"]))
+
 # Clear previous uploaded files display automatically before handling new uploads
 if st.button("Save Files"):
     if uploaded_files:
@@ -119,128 +127,195 @@ if st.button("Save Files"):
 
 
 
-#if st.button("Save Files"):
-#    if uploaded_files:
-#        save_files(uploaded_files)
-#    else:
-#        st.error("Please upload files first.")
 
 
+###################### DATA PREPROCESSING   ############################
 
 
+# Process files and apply preprocessing logic
+def preprocess_files():
+    try:
+        # Step 1: Get all Excel files in the folder
+        excel_files = [f for f in os.listdir(folderpath) if f.endswith('.xlsx')]
 
+        # Step 2: Loop through each Excel file and preprocess
+        for file in excel_files:
+            file_path = os.path.join(folderpath, file)
+            df = pd.read_excel(file_path)
+            df = df.loc[:, ~df.columns.str.contains('^Unnamed')]  # Remove unnamed columns
 
+            # Check for duplicate column names and give a warning if found
+            duplicate_columns = df.columns[df.columns.duplicated()].tolist()
+            if duplicate_columns:
+                st.warning(f"File: {file}\nDuplicate columns found: {', '.join(duplicate_columns)}")
 
-################# data preprocessing         ###################
+            # Step 4: Remove specific unnecessary columns
+            columns_to_remove = [
+                'plant_name', 'area_name', 'equipment_name', 'measurement_location_name',
+                'avg_Vertical_velocity', 'avg_Axial_velocity', 'avg_Horizontal_velocity',
+                'avg_total_acceleration', 'avg_audio', 'avg_temperature',
+                'min_total_acceleration', 'min_Vertical_velocity', 'min_Axial_velocity',
+                'min_Horizontal_velocity', 'min_temperature', 'min_audio'
+            ]
+            df.drop(columns=columns_to_remove, inplace=True, errors='ignore')
 
+            # Step 5: Rename columns
+            column_rename_map = {
+                'max_total_acceleration': 'tot_acc',
+                'max_Vertical_velocity': 'ver_vel',
+                'max_Axial_velocity': 'ax_vel',
+                'max_Horizontal_velocity': 'hor_vel',
+                'max_temperature': 'temp',
+                'max_audio': 'aud'
+            }
+            df.rename(columns=column_rename_map, inplace=True)
 
-import os
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-import streamlit as st
+            # Step 6: Handle missing values for 'asset_name'
+            if 'asset_name' in df.columns:
+                df['asset_name'].fillna(method='ffill', inplace=True)
+                df['asset_name'].fillna(method='bfill', inplace=True)
 
-def process_data():
-    
-    # Define the input file (only one file in the folder)
-    input_file_name = os.listdir(folderpath)[0]  # Assuming only one file in the folder
-    input_file_path = os.path.join(folderpath, input_file_name)
+            # Step 7: Convert 'time' to datetime and remove timezone
+            df['time'] = pd.to_datetime(df['time'], errors='coerce').dt.tz_localize(None)
+            date_for_file = df['time'].dt.date.iloc[0]
 
-    # Check if the input file exists
-    if not os.path.isfile(input_file_path):
-        st.error(f"Input file '{input_file_name}' does not exist!")
-        return
+            # Drop duplicates based on 'time' and keep the first occurrence
+            df.drop_duplicates(subset='time', inplace=True)
 
-    # List of 12 unique asset names
-    assets_list = [
-        "A1 GM 1 GB IP DE", "A1 GM1 MDE", "A1 GM 2 GB IP DE", "A1 GM2 MDE",
-        "A1 GM 3 GB IP DE", "A1 GM3 MDE", "A1 GM 4 GB IP DE", "A1 GM4 MDE",
-        "A1 GM 5 GB IP DE", "A1 GM5 MDE", "A1 GM 6 GB IP DE", "A1 GM6 MDE"
-    ]
+            # Check for duplicate index values and show a warning
+            if df['time'].duplicated().any():
+                duplicate_rows = df[df['time'].duplicated()]
+                warning_message = (
+                    f"File: {file}\n"
+                    f"Duplicate 'time' values found in rows:\n"
+                    f"{duplicate_rows[['time']].to_string(index=False)}"
+                )
+                st.warning(warning_message)
 
-    # Columns to extract for each asset, corresponding to F, I, L, O, R, U
-    required_column_indices = [5, 8, 11, 14, 17, 20]  # 0-based indices for F, I, L, O, R, U
-    required_column_names = ['a2', 'vv2', 'av2', 'hv2', 't2', 'd2']
+            # Create a minute-wise time range
+            start_time = pd.Timestamp(f"{date_for_file} 00:00:00")
+            end_time = pd.Timestamp(f"{date_for_file} 23:59:00")
+            full_time_range = pd.date_range(start=start_time, end=end_time, freq='T')
 
-    # Check if the output folder exists, if not, create it
-    #if not os.path.isdir(test_file_path):
-        #os.makedirs(test_file_path)
-        #st.info(f"Output folder '{test_file_path}' created!")
+            # Set 'time' as the index and reindex with the full time range
+            df.set_index('time', inplace=True)
+            df = df.reindex(full_time_range)
+            df.index.name = 'time'
 
-    # Load the input file
-    input_df = pd.read_excel(input_file_path)
+            # Fill missing values
+            non_numeric_cols = df.select_dtypes(exclude=['number']).ffill().bfill()
+            numeric_cols = df.select_dtypes(include=['number']).fillna(0)
+            resampled_numeric = numeric_cols.resample('10T', label='left', closed='left').max()
+            resampled_non_numeric = non_numeric_cols.resample('10T').ffill()
+            resampled_df = pd.concat([resampled_numeric, resampled_non_numeric], axis=1)
+            resampled_df.reset_index(inplace=True)
 
-    # Initialize an empty DataFrame to store combined data
-    output_df = pd.DataFrame()
+            # Format 'time' to 'Date' and 'Time'
+            resampled_df['Date'] = resampled_df['time'].dt.strftime('%d %b %Y')
+            resampled_df['Time'] = resampled_df['time'].dt.strftime('%I:%M %p')
+            resampled_df.insert(0, 'Sr No', range(1, len(resampled_df) + 1))
+            ordered_columns = ['Date', 'Time', 'Sr No', 'tot_acc', 'ver_vel', 'ax_vel', 'hor_vel', 'temp', 'aud', 'asset_name']
+            resampled_df = resampled_df[[col for col in ordered_columns if col in resampled_df.columns]]
 
-    # Loop over each asset in assets_list
-    for asset_name in assets_list:
-        # Find rows where Column B (index 1) matches the asset_name
-        asset_rows = input_df[input_df.iloc[:, 1] == asset_name]
-        
-        # Check if any rows were found
-        if not asset_rows.empty:
-            # Parse the date and time from Column C (index 2)
-            asset_rows['DateTime'] = pd.to_datetime(asset_rows.iloc[:, 2], format='%d-%m-%Y %H:%M')
-            
-            # Identify the earliest start time in the data for this asset
-            start_time = asset_rows['DateTime'].min().replace(hour=5, minute=30)
-            end_time = start_time + timedelta(days=1, hours=0, minutes=0)
-            
-            # Filter rows within this 24-hour window (from earliest 5:30 AM to the next day 5:30 AM)
-            filtered_rows = asset_rows[(asset_rows['DateTime'] >= start_time) & (asset_rows['DateTime'] <= end_time)]
-            
-            # Select only the first 49 rows if there are more than 49 available
-            filtered_rows = filtered_rows.head(49)
-            
-            # Collect only the specified columns (F, I, L, O, R, U) for the 49 rows
-            data_for_asset = filtered_rows.iloc[:, required_column_indices].values
-            data_for_asset = pd.DataFrame(data_for_asset, columns=required_column_names)
-            
-            # Fill any missing rows with 0s if there are fewer than 49 rows
-            if len(data_for_asset) < 49:
-                missing_rows = 49 - len(data_for_asset)
-                data_for_asset = pd.concat([data_for_asset, pd.DataFrame(0, index=range(missing_rows), columns=required_column_names)], ignore_index=True)
+            # Save the processed data back to the same file
+            with pd.ExcelWriter(file_path, engine='openpyxl', mode='w') as writer:
+                resampled_df.to_excel(writer, index=False)
+
+        # Combining files
+        asset_order = [
+            "Grinding Machine 1 Gearbox", "Grinding Machine-1 Motor", "Grinding Machine 2 Gearbox",
+            "Grinding Machine-2 Motor", "Grinding Machine 3 Gearbox", "Grinding Machine-3 Motor",
+            "Grinding Machine 4 Gearbox", "Grinding Machine-4 Motor", "Grinding Machine 5 Gearbox",
+            "Grinding Machine-5 Motor", "Grinding Machine 6 Gearbox", "Grinding Machine-6 Motor"
+        ]
+
+##combined_df = pd.DataFrame()
+##for asset in asset_order:
+##    for file in excel_files:
+##        file_path = os.path.join(folderpath, file)
+##        try:
+##            df = pd.read_excel(file_path)
+##            df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+##        except Exception as e:
+##            continu##
+##        asset_name_values = df['asset_name'].iloc[1:3].values
+##        if any(asset.strip() == value.strip() for value in asset_name_values):
+##            df = df.drop(columns=['asset_name'], errors='ignore')
+##            if combined_df.empty:
+##                common_cols = ['Date', 'Time', 'Sr No']
+##                combined_df = df[common_cols].copy(##
+##            df = df.drop(columns=['Date', 'Time', 'Sr No'], errors='ignore')
+##            combined_df = pd.concat([combined_df, df], axis=1##
+##if not combined_df.empty:
+##    combined_df.fillna(0, inplace=True)
+##    combined_df['Code'] = ''
+##    with pd.ExcelWriter(test_file_path, engine='openpyxl') as writer:
+##        combined_df.to_excel(writer, index=False)
+##    st.success("All files processed and combined successfully!")
+##else:
+##    st.error("No data found or processed. Please check files and asset names.")
+
+        # Initialize an empty combined_df with common columns and asset-specific columns
+        combined_columns = ['Date', 'Time', 'Sr No'] + ['tot_acc', 'ver_vel', 'ax_vel', 'hor_vel', 'temp', 'aud'] * len(asset_order)
+        combined_df = pd.DataFrame(columns=combined_columns)
+
+        excel_files = [f for f in os.listdir(folderpath) if f.endswith('.xlsx')]
+
+        for asset in asset_order:
+            asset_found = False
+
+            for file in excel_files:
+                file_path = os.path.join(folderpath, file)
+                try:
+                    df = pd.read_excel(file_path)
+                    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+                except Exception as e:
+                    continue
+
+                asset_name_values = df['asset_name'].iloc[1:3].values
+                if any(asset.strip() == value.strip() for value in asset_name_values):
+                    asset_found = True
+                    df = df.drop(columns=['asset_name'], errors='ignore')
+                    if combined_df.empty:
+                        common_cols = ['Date', 'Time', 'Sr No']
+                        combined_df = df[common_cols].copy()
+
+                    df = df.drop(columns=['Date', 'Time', 'Sr No'], errors='ignore')
+                    combined_df = pd.concat([combined_df, df], axis=1)
+
+            # If the asset file is missing, fill with zeros using renamed column labels
+            if not asset_found:
+                missing_data = pd.DataFrame(0, index=range(len(combined_df)), columns=['tot_acc', 'ver_vel', 'ax_vel', 'hor_vel', 'temp', 'aud'])
+                combined_df = pd.concat([combined_df, missing_data], axis=1)
+
+        if not combined_df.empty:
+            combined_df.fillna(0, inplace=True)
+            combined_df['Code'] = ''
+            combined_df.to_excel(test_file_path, index=False)
+            st.success("All files processed and combined successfully!")
         else:
-            # If no rows found for this asset, fill with 0s for all columns
-            data_for_asset = pd.DataFrame(0, index=range(49), columns=required_column_names)
+            st.error("No data found or processed. Please check files and asset names.")
 
-        # Rename columns to reflect asset-specific names (e.g., "a2" becomes "A1 GM 1 GB IP DE_a2")
-        data_for_asset.columns = [f"{asset_name}_{col}" for col in required_column_names]
-
-        # Concatenate the data for this asset horizontally to the output DataFrame
-        output_df = pd.concat([output_df, data_for_asset], axis=1)
-
-    # Generate Date, Time, and Sr No columns at 30-minute intervals
-    date_list = [(start_time + timedelta(minutes=30 * i)).strftime('%d %b %Y') for i in range(49)]
-    time_list = [(start_time + timedelta(minutes=30 * i)).strftime('%I:%M %p') for i in range(49)]
-    sr_no_list = list(range(1, 50))
-
-
-    # Insert Date, Time, and Sr No columns into the final output DataFrame
-    output_df.insert(0, 'Date', date_list)
-    output_df.insert(1, 'Time', time_list)
-    output_df.insert(2, 'Sr No', sr_no_list)
-
-    # Add an empty 'Code' column at the end
-    output_df['Code'] = ''
-
-
-    # Save the processed data using ExcelWriter
-    with pd.ExcelWriter(test_file_path, engine='openpyxl') as writer:
-        output_df.to_excel(writer, index=False)
 
     
-    # Display success message when all files are processed
-    st.info(f"Data has been processed and saved")
+
+    except Exception as e:
+        st.error(f"An error occurred during processing: {e}")
 
 
-# Create a button to trigger the process
-if st.button('Preprocess Data'):
-    process_data()
+if st.button("Preprocess Files"):
+    preprocess_files()
 
 
-##########################  Classification ###############################
+
+
+
+
+#################### Classification    ###############################
+
+
+
+
 
 import tensorflow as tf
 import random
@@ -268,7 +343,7 @@ def set_random_seed(seed=42):
 # Define the training function
 def train_ensemble_model(training_file_path, model_folder_path):
     def load_data(file_path):
-        df = pd.read_excel(file_path)
+        df = pd.read_excel(file_path, sheet_name= 'Classification')        
         X = df.iloc[:, 3:-1].values  # Features (assuming columns 3 to second last)
         y = df['Code'].values  # Target column
         return X, y
@@ -308,7 +383,7 @@ def train_ensemble_model(training_file_path, model_folder_path):
     X_resampled, X_test, y_resampled, y_test = preprocess_data(X, y)
 
     # Class weights for Keras model
-    class_weights_nn = {0: 1.0, 1: 80, 2: 90, 3: 80}
+    class_weights_nn = {0: 1.0, 1: 30, 2: 30, 3: 30}
 
     # Build Keras model
     nn_model = KerasClassifier(model=build_nn_model, epochs=50, batch_size=32, verbose=0, class_weight=class_weights_nn)
@@ -374,6 +449,7 @@ def predict_ensemble(test_file_path, model_folder_path):
 st.title("Breakdown Code Classification")
 
 
+
 #...CHNAGED................................................................................................................................................
 
 if st.button("Check BD Classification"):
@@ -414,8 +490,6 @@ with st.expander("Breakdown Classification and Codes", expanded=True):
 
        
 
-
-
 ################################        time prediction             #############################
 
 import streamlit as st
@@ -453,7 +527,7 @@ def train_model(training_file_path):
         scaler = StandardScaler()
         X_train_scaled = scaler.fit_transform(X_train)
         X_val_scaled = scaler.transform(X_val)
-        joblib.dump(scaler, os.path.join(model_folder_path, 'scalerfinT.pkl'))
+        joblib.dump(scaler, os.path.join(model_folder_path, 'scalerfinT111.pkl'))
         return X_train_scaled, X_val_scaled, y_train, y_val
 
     def build_model(input_shape):
@@ -474,7 +548,7 @@ def train_model(training_file_path):
 
     early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
     model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=100, batch_size=32, callbacks=[early_stopping])
-    model.save(os.path.join(model_folder_path, 'trained_modelFINT.h5'))
+    model.save(os.path.join(model_folder_path, 'trained_modelFINT111.h5'))
 
 # Define the prediction function
 def predict_time(test_file_path):
@@ -486,12 +560,12 @@ def predict_time(test_file_path):
         return df, X_test, serial_numbers, times
 
     def preprocess_test_data(X_test):
-        scaler = joblib.load(os.path.join(model_folder_path, 'scalerfinT.pkl'))
+        scaler = joblib.load(os.path.join(model_folder_path, 'scalerfinT111.pkl'))
         X_test_scaled = scaler.transform(X_test)
         return X_test_scaled
 
     def predict_time_to_breakdown(X_test_scaled):
-        model = load_model(os.path.join(model_folder_path, 'trained_modelFINT.h5'))
+        model = load_model(os.path.join(model_folder_path, 'trained_modelFINT111.h5'))
         predictions = model.predict(X_test_scaled)
         return predictions
 
@@ -505,10 +579,7 @@ def predict_time(test_file_path):
             adjusted_time_to_bd = prediction[0] + time_difference
             time_to_breakdown_with_time.append(adjusted_time_to_bd)
         return time_to_breakdown_with_time
-
-
-
-#CHANGE.........................................................................................................................
+    #CHANGE.........................................................................................................................
     def find_minimum_maximum_and_mode_interval(time_to_breakdown_with_time):
         # Filter out negative times
         positive_times = [time for time in time_to_breakdown_with_time if time >= 0]
@@ -545,8 +616,6 @@ def predict_time(test_file_path):
     
         return min_time, max_time, mode_interval, max_frequency
 
-
-
    
     try:
         # Load and preprocess the test data
@@ -560,285 +629,69 @@ def predict_time(test_file_path):
         # Find the minimum, maximum, and mode interval
         min_time, max_time, mode_interval, mode_frequency = find_minimum_maximum_and_mode_interval(predictions_with_time)
     
-        if min_time is None or max_time is None or mode_interval is None:
-            return "No positive breakdown times available."
+        
     
-        # Calculate the midpoint of the mode interval
-        mode_midpoint = (mode_interval[0] + mode_interval[1]) / 2
-    
-        # Define weights for min and mode
-        W_min = 0.7
-        W_mode = 0.3
-    
-        # Calculate weighted breakdown time
-        weighted_breakdown_time = (W_min * min_time) + (W_mode * mode_midpoint)
+       
     
         # Return the final weighted breakdown time
-        return (f"Breakdown might occur in approximately w.r.t 6 AM yesterday: "
-                f"{weighted_breakdown_time:.2f} hours")
+        # Choose the output based on the condition
+        final_output_time = max(24,min(24 + (0.4*min_time + 0.6*max_time),48))
+        
+
+        
+
+
+        # Return the final breakdown time
+        return (f"Breakdown might occur in approximately w.r.t 6 AM Data date: \n"
+        f"{final_output_time:.2f} hours")
+
     except Exception as e:
         return f"Error: {e}"
-
-
    
+
     
 
 
 # Streamlit app UI
 st.title("Time Prediction")
 
+
+#....CHANGED........................................................................................................................................
+
+
 if st.button("Predict Time", disabled=not st.session_state["check_bd_clicked"]):
     if st.session_state["bd_output"] == "No BD predicted":
-        st.error("No breakdown predicted. Cannot proceed with time prediction.")
-    else:
-        with st.spinner("Training the model and making predictions..."):
-            #train_model(training_file_path)
-            result = predict_time(test_file_path)  # Predict time using predefined test data
-        st.write(f"Predicted Time to Breakdown: {result}")
-        st.success("Prediction complete!")
+         st.error("No breakdown predicted. Cannot proceed with time prediction.")
+     else:
+         with st.spinner("Training the model and making predictions..."):
+             #train_model(training_file_path)
+             result = predict_time(test_file_path)  # Predict time using predefined test data
+         st.write(f"Predicted Time to Breakdown: {result}")
+         st.success("Prediction complete!")
+
+# # Streamlit app UI
+# st.title("Time Prediction")
+
+#if st.button("Predict Time"):
+#   with st.spinner("Training the model and making predictions..."):
+#       train_model(training_file_path)
+#        result = predict_time(test_file_path)  # Predict time using predefined test data
+#    st.write(f"Predicted Time to Breakdown: {result}")
+ #   st.success("Prediction complete!")
 
 
 
 
 
-#################### Classification    ###############################
-
-###import streamlit as st
-###import os
-###import pandas as pd
-###import numpy as np
-###from tensorflow.keras.models import Sequential, load_model
-###from tensorflow.keras.layers import Dense, Dropout
-###from tensorflow.keras.callbacks import EarlyStopping
-###from sklearn.model_selection import train_test_split
-###from sklearn.preprocessing import StandardScaler
-###import joblib
-###
-###
-#### Function to set random seed for reproducibility
-###def set_random_seed(seed=42):
-###    np.random.seed(seed=42)
-###
-#### Define the training function
-###def train_model_classification(training_file_path):
-###    def load_data(file_path):
-###        df = pd.read_excel(file_path, sheet_name="Classification")
-###        X = df.iloc[:, 3:-1].values  # Assuming features are from column 1 to second last
-###        y = df.iloc[:, -1].values  # Target is in the last column
-###        return X, y
-###
-###    def preprocess_data(X, y):
-###        # Scale the input features
-###        scaler = StandardScaler()
-###        X_scaled = scaler.fit_transform(X)
-###        
-###        # Save the scaler for future use
-###        #joblib.dump(scaler, scaler_path)
-###        joblib.dump(scaler, os.path.join(model_folder_path, "scaler_classification.pkl"))
-###        
-###        # Split data into training and validation sets
-###        X_train, X_val, y_train, y_val = train_test_split(X_scaled, y, test_size=0.01, random_state=42)
-###        return X_train, X_val, y_train, y_val
-###
-###    def build_model(input_shape):
-###        # Build the neural network model
-###        model = Sequential()
-###        model.add(Dense(128, activation='relu', input_shape=(X_train.shape[1],)))
-###        model.add(Dropout(0.2))
-###        model.add(Dense(64, activation='relu'))
-###        model.add(Dropout(0.2))
-###        model.add(Dense(32, activation='relu'))
-###        model.add(Dense(4, activation='softmax'))  # 4 output units for the 4 classes
-###        model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy']) 
-###        return model
-###
-###    # Set random seed for reproducibility
-###    set_random_seed()
-###
-###    # Load and preprocess the data
-###    X, y = load_data(training_file_path)
-###    X_train, X_val, y_train, y_val = preprocess_data(X, y)
-###    
-###    class_weight_nn = {0: 1.0, 1: 240, 2: 260, 3: 280}
-###
-###    # Build the model
-###    model = build_model(X_train)
-###
-###    
-###
-###    # Train the model
-###    model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=100,     batch_size=32,class_weight=class_weight_nn)
-###
-###    # Save the trained model
-###    #model.save(model_path)
-###    # model = joblib.load(os.path.join(model_folder_path, 'ensemble_modelFINP.pkl'))
-###    model.save(os.path.join(model_folder_path, 'ensemble_modelFINP.h5'))
-###
-###    # joblib.dump(model, os.path.join(model_folder_path, 'ensemble_modelFINP.pkl'))
-###    st.success("Model training completed and saved!")
-###
-#### Define the prediction function
-###def predict_breakdown(test_file_path):
-###    def load_test_data(file_path):
-###        df = pd.read_excel(file_path)
-###        X_test = df.iloc[:, 3:-1].values  # Features from column 1 to second last
-###        return df, X_test
-###
-###    def preprocess_test_data(X_test):
-###        # Load the scaler and transform the test data
-###        #scaler = joblib.load(scaler_path)
-###        scaler = joblib.load(os.path.join(model_folder_path, "scaler_classification.pkl"))
-###        X_test_scaled = scaler.transform(X_test)
-###        return X_test_scaled
-###
-###    def predict_classification(X_test_scaled):
-###        # Load the trained model and make predictions
-###        #model = load_model(model_path)
-###        model = load_model(os.path.join(model_folder_path, 'ensemble_modelFINP.h5'))
-###       # model = joblib.load(model, os.path.join(model_folder_path, 'ensemble_modelFINP.pkl'))
-###        predictions = model.predict(X_test_scaled)
-###        return predictions
-###
-###    # Set random seed for reproducibility
-###    set_random_seed()
-###
-###    try:
-###        # Load and preprocess the test data
-###        df, X_test = load_test_data(test_file_path)
-###        X_test_scaled = preprocess_test_data(X_test)
-###
-###        # Make predictions
-###        predictions = predict_classification(X_test_scaled)
-###
-###        # Get the predicted class labels (highest probability class)
-###        predicted_classes = np.argmax(predictions, axis=1)
-###
-###        # Map the predicted classes to breakdown codes (0, 1, 2, 3)
-###        breakdown_codes = ["Code 0", "Code 1", "Code 2", "Code 3"]
-###        predicted_labels = [breakdown_codes[i] for i in predicted_classes]
-###
-###        # Check if any non-zero breakdown code (Code 1, 2, or 3) is predicted
-###        non_zero_codes = [code for code in predicted_labels if "Code 1" in code or "Code 2" in code or "Code 3" in code]
-###
-###        
-###        # Only return results if non-zero codes are predicted
-###        if non_zero_codes:
-###            unique_non_zero_codes = set(non_zero_codes)
-###            num_unique_non_zero_codes = len(unique_non_zero_codes)
-###            df['Predicted Breakdown'] = predicted_labels
-###            return (
-###                #df[['Predicted Breakdown']], Count: {num_unique_non_zero_codes},
-###                f"Breakdown of {', '.join(unique_non_zero_codes)} might occur."
-###            )
-###        else:
-###            # Return a message indicating no breakdown was predicted
-###            return None, "No BD predicted"
-###    except Exception as e:
-###        return f"Error: {e}", None
-###
-#### Streamlit app UI
-###st.title("Breakdown Code Classification")
-###
-###
-###if st.button("check BD classification"):
-###    # Train the model (if needed) and predict time
-###    with st.spinner("Training the model and making predictions..."):
-###        #train_model_classification(training_file_path)  # Train the model (use predefined training data)
-###        result = predict_breakdown(test_file_path)  # Predict time using predefined test data
-###    
-###    st.write(f"classified breakdown: {result}")
-###    st.success("Prediction complete!")
-
-
-
-
-################breakdown records###########################
-
-import streamlit as st
-import pandas as pd
-from datetime import datetime
-
-# Path to the Excel file
-#excel_file_path = "breakdown_data.xlsx"
-
-# Function to save breakdown data to Excel
-def save_breakdown_data():
-    date = st.session_state.date_entry.strftime("%d-%m-%y")
-    time = f"{st.session_state.hour_combobox}:{st.session_state.minute_combobox} {st.session_state.am_pm_combobox}"
-    code = st.session_state.code_entry
     
-    if not code:
-        st.session_state.status = "Please fill the Breakdown Code!"
-        st.session_state.status_color = "red"
-        return
 
-    try:
-        df = pd.read_excel(excel_file_path)
-        new_row = pd.DataFrame([[date, time, code]], columns=["Date", "Time", "Code"])
-        df = pd.concat([df, new_row], ignore_index=True)
-        df.to_excel(excel_file_path, index=False)
-        st.session_state.status = "Breakdown data saved successfully!"
-        st.session_state.status_color = "green"
-    except Exception as e:
-        st.session_state.status = f"Error: {e}"
-        st.session_state.status_color = "red"
 
-# Function to clear the breakdown input fields
-def clear_breakdown_fields():
-    st.session_state.date_entry = datetime.now()
-    st.session_state.hour_combobox = '12'
-    st.session_state.minute_combobox = '00'
-    st.session_state.am_pm_combobox = 'AM'
-    st.session_state.code_entry = ''
-    st.session_state.status = "Fields cleared!"
-    st.session_state.status_color = "blue"
 
-# Streamlit UI Setup
-def display_ui():
-    # Initialize session state if not already initialized
-    if 'status' not in st.session_state:
-        st.session_state.status = ""
-        st.session_state.status_color = "black"
-        st.session_state.date_entry = datetime.now()
-        st.session_state.hour_combobox = '12'
-        st.session_state.minute_combobox = '00'
-        st.session_state.am_pm_combobox = 'AM'
-        st.session_state.code_entry = ''
 
-    st.title("Breakdown Record")
 
-    # Date input
-    st.session_state.date_entry = st.date_input("Date", value=st.session_state.date_entry)
-    
-    # Time selection
-    time_column1, time_column2, time_column3 = st.columns(3)
-    with time_column1:
-        st.session_state.hour_combobox = st.selectbox("Hour", options=[f"{i:02d}" for i in range(1, 13)], index=int(st.session_state.hour_combobox)-1)
-    with time_column2:
-        st.session_state.minute_combobox = st.selectbox("Minute", options=[f"{i:02d}" for i in range(0, 60, 5)], index=int(st.session_state.minute_combobox)//5)
-    with time_column3:
-        st.session_state.am_pm_combobox = st.selectbox("AM/PM", options=["AM", "PM"], index=["AM", "PM"].index(st.session_state.am_pm_combobox))
 
-    # Breakdown code input
-    st.session_state.code_entry = st.text_input("Breakdown Code", value=st.session_state.code_entry)
 
-    # Status display (Feedback to user)
-    st.markdown(f"<p style='color:{st.session_state.status_color};'>{st.session_state.status}</p>", unsafe_allow_html=True)
 
-    # Buttons for saving and clearing
-    col1, col2 = st.columns(2)
-    with col1:
-        save_button = st.button("Save Breakdown")
-        if save_button:
-            save_breakdown_data()
-    with col2:
-        clear_button = st.button("Clear Fields")
-        if clear_button:
-            clear_breakdown_fields()
-
-# Run the UI display
-if __name__ == "__main__":
-    display_ui()
 
 #..........................................Trend..............................
 
@@ -847,8 +700,8 @@ if __name__ == "__main__":
 
 
 
-
 import matplotlib.pyplot as plt
+
 # Mapping for parameters to descriptive names
 parameter_mapping = {
     'a2': 'Acceleration',
@@ -911,11 +764,11 @@ else:
                 # Extract relevant data for the selected asset and column type(s)
                 time_data = test_df['Time']
                 date_data = test_df['Date']
-                datetime_data = pd.to_datetime(date_data + ' ' + time_data, format='%d %b %Y %I:%M %p')
+                datetime_data = pd.to_datetime(date_data + ' ' + time_data, format='%d-%m-%Y %I:%M %p')
 
                 # Determine start and end dates for the X-axis label
-                start_date = datetime_data.min().strftime('%d %b %Y')
-                end_date = datetime_data.max().strftime('%d %b %Y')
+                start_date = datetime_data.min().strftime('%d-%m-%Y')
+                end_date = datetime_data.max().strftime('%d-%m-%Y')
 
                 # Generate hourly tick labels
                 hourly_ticks = pd.date_range(start=datetime_data.min(), end=datetime_data.max(), freq='H')
@@ -1000,11 +853,23 @@ else:
                 combined_df.columns = ["Parameter", "Caution Crossings", "Warning Crossings"]
 
                 # Display the combined table
+
                 st.markdown("### Threshold Crossing frequency")
                 st.table(combined_df.T)
 
     except Exception as e:
         st.error(f"Error processing the files: {e}")
+
+
+
+
+
+
+
+
+
+
+
 
 
 
