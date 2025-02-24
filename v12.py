@@ -60,7 +60,7 @@ st.title("Breakdown Predictor")
 st.markdown("Upload your files, and they will be preprocessed accordingly.")
 
 # File Upload Section
-uploaded_files = st.file_uploader("Upload Excel files", type=['xlsx'], accept_multiple_files=True)
+#uploaded_files = st.file_uploader("Upload Excel files", type=['xlsx'], accept_multiple_files=True)
 
 #uploaded_files = st.file_uploader("Drop files here:", accept_multiple_files=True, on_change=lambda: on_file_drop(uploaded_files))
 
