@@ -131,182 +131,123 @@ if st.button("Save Files"):
 
 ###################### DATA PREPROCESSING   ############################
 
+import os
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+import streamlit as st
 
-# Process files and apply preprocessing logic
-def preprocess_files():
-    try:
-        # Step 1: Get all Excel files in the folder
-        excel_files = [f for f in os.listdir(folderpath) if f.endswith('.xlsx')]
+def process_data():
+    
+    # Define the input file (only one file in the folder)
+    input_file_name = os.listdir(folderpath)[0]  # Assuming only one file in the folder
+    input_file_path = os.path.join(folderpath, input_file_name)
 
-        # Step 2: Loop through each Excel file and preprocess
-        for file in excel_files:
-            file_path = os.path.join(folderpath, file)
-            df = pd.read_excel(file_path)
-            df = df.loc[:, ~df.columns.str.contains('^Unnamed')]  # Remove unnamed columns
+    # Check if the input file exists
+    if not os.path.isfile(input_file_path):
+        st.error(f"Input file '{input_file_name}' does not exist!")
+        return
 
-            # Check for duplicate column names and give a warning if found
-            duplicate_columns = df.columns[df.columns.duplicated()].tolist()
-            if duplicate_columns:
-                st.warning(f"File: {file}\nDuplicate columns found: {', '.join(duplicate_columns)}")
+    # List of 12 unique asset names
+    assets_list = [
+        "A1 GM 1 GB IP DE", "A1 GM1 MDE", "A1 GM 2 GB IP DE", "A1 GM2 MDE",
+        "A1 GM 3 GB IP DE", "A1 GM3 MDE", "A1 GM 4 GB IP DE", "A1 GM4 MDE",
+        "A1 GM 5 GB IP DE", "A1 GM5 MDE", "A1 GM 6 GB IP DE", "A1 GM6 MDE"
+    ]
 
-            # Step 4: Remove specific unnecessary columns
-            columns_to_remove = [
-                'plant_name', 'area_name', 'equipment_name', 'measurement_location_name',
-                'avg_Vertical_velocity', 'avg_Axial_velocity', 'avg_Horizontal_velocity',
-                'avg_total_acceleration', 'avg_audio', 'avg_temperature',
-                'min_total_acceleration', 'min_Vertical_velocity', 'min_Axial_velocity',
-                'min_Horizontal_velocity', 'min_temperature', 'min_audio'
-            ]
-            df.drop(columns=columns_to_remove, inplace=True, errors='ignore')
+    # Columns to extract for each asset, corresponding to F, I, L, O, R, U
+    required_column_indices = [5, 8, 11, 14, 17, 20]  # 0-based indices for F, I, L, O, R, U
+    required_column_names = ['a2', 'vv2', 'av2', 'hv2', 't2', 'd2']
 
-            # Step 5: Rename columns
-            column_rename_map = {
-                'max_total_acceleration': 'tot_acc',
-                'max_Vertical_velocity': 'ver_vel',
-                'max_Axial_velocity': 'ax_vel',
-                'max_Horizontal_velocity': 'hor_vel',
-                'max_temperature': 'temp',
-                'max_audio': 'aud'
-            }
-            df.rename(columns=column_rename_map, inplace=True)
+    # Check if the output folder exists, if not, create it
+    #if not os.path.isdir(test_file_path):
+        #os.makedirs(test_file_path)
+        #st.info(f"Output folder '{test_file_path}' created!")
 
-            # Step 6: Handle missing values for 'asset_name'
-            if 'asset_name' in df.columns:
-                df['asset_name'].fillna(method='ffill', inplace=True)
-                df['asset_name'].fillna(method='bfill', inplace=True)
+    # Load the input file
+    input_df = pd.read_excel(input_file_path)
 
-            # Step 7: Convert 'time' to datetime and remove timezone
-            df['time'] = pd.to_datetime(df['time'], errors='coerce').dt.tz_localize(None)
-            date_for_file = df['time'].dt.date.iloc[0]
+    # Initialize an empty DataFrame to store combined data
+    output_df = pd.DataFrame()
 
-            # Drop duplicates based on 'time' and keep the first occurrence
-            df.drop_duplicates(subset='time', inplace=True)
+    # Loop over each asset in assets_list
+    for asset_name in assets_list:
+        # Find rows where Column B (index 1) matches the asset_name
+        asset_rows = input_df[input_df.iloc[:, 1] == asset_name]
+        
+        # Check if any rows were found
+        if not asset_rows.empty:
+            # Parse the date and time from Column C (index 2)
+            asset_rows['DateTime'] = pd.to_datetime(asset_rows.iloc[:, 2], format='%d-%m-%Y %H:%M')
 
-            # Check for duplicate index values and show a warning
-            if df['time'].duplicated().any():
-                duplicate_rows = df[df['time'].duplicated()]
-                warning_message = (
-                    f"File: {file}\n"
-                    f"Duplicate 'time' values found in rows:\n"
-                    f"{duplicate_rows[['time']].to_string(index=False)}"
-                )
-                st.warning(warning_message)
-
-            # Create a minute-wise time range
-            start_time = pd.Timestamp(f"{date_for_file} 00:00:00")
-            end_time = pd.Timestamp(f"{date_for_file} 23:59:00")
-            full_time_range = pd.date_range(start=start_time, end=end_time, freq='T')
-
-            # Set 'time' as the index and reindex with the full time range
-            df.set_index('time', inplace=True)
-            df = df.reindex(full_time_range)
-            df.index.name = 'time'
-
-            # Fill missing values
-            non_numeric_cols = df.select_dtypes(exclude=['number']).ffill().bfill()
-            numeric_cols = df.select_dtypes(include=['number']).fillna(0)
-            resampled_numeric = numeric_cols.resample('10T', label='left', closed='left').max()
-            resampled_non_numeric = non_numeric_cols.resample('10T').ffill()
-            resampled_df = pd.concat([resampled_numeric, resampled_non_numeric], axis=1)
-            resampled_df.reset_index(inplace=True)
-
-            # Format 'time' to 'Date' and 'Time'
-            resampled_df['Date'] = resampled_df['time'].dt.strftime('%d %b %Y')
-            resampled_df['Time'] = resampled_df['time'].dt.strftime('%I:%M %p')
-            resampled_df.insert(0, 'Sr No', range(1, len(resampled_df) + 1))
-            ordered_columns = ['Date', 'Time', 'Sr No', 'tot_acc', 'ver_vel', 'ax_vel', 'hor_vel', 'temp', 'aud', 'asset_name']
-            resampled_df = resampled_df[[col for col in ordered_columns if col in resampled_df.columns]]
-
-            # Save the processed data back to the same file
-            with pd.ExcelWriter(file_path, engine='openpyxl', mode='w') as writer:
-                resampled_df.to_excel(writer, index=False)
-
-        # Combining files
-        asset_order = [
-            "Grinding Machine 1 Gearbox", "Grinding Machine-1 Motor", "Grinding Machine 2 Gearbox",
-            "Grinding Machine-2 Motor", "Grinding Machine 3 Gearbox", "Grinding Machine-3 Motor",
-            "Grinding Machine 4 Gearbox", "Grinding Machine-4 Motor", "Grinding Machine 5 Gearbox",
-            "Grinding Machine-5 Motor", "Grinding Machine 6 Gearbox", "Grinding Machine-6 Motor"
-        ]
-
-##combined_df = pd.DataFrame()
-##for asset in asset_order:
-##    for file in excel_files:
-##        file_path = os.path.join(folderpath, file)
-##        try:
-##            df = pd.read_excel(file_path)
-##            df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-##        except Exception as e:
-##            continu##
-##        asset_name_values = df['asset_name'].iloc[1:3].values
-##        if any(asset.strip() == value.strip() for value in asset_name_values):
-##            df = df.drop(columns=['asset_name'], errors='ignore')
-##            if combined_df.empty:
-##                common_cols = ['Date', 'Time', 'Sr No']
-##                combined_df = df[common_cols].copy(##
-##            df = df.drop(columns=['Date', 'Time', 'Sr No'], errors='ignore')
-##            combined_df = pd.concat([combined_df, df], axis=1##
-##if not combined_df.empty:
-##    combined_df.fillna(0, inplace=True)
-##    combined_df['Code'] = ''
-##    with pd.ExcelWriter(test_file_path, engine='openpyxl') as writer:
-##        combined_df.to_excel(writer, index=False)
-##    st.success("All files processed and combined successfully!")
-##else:
-##    st.error("No data found or processed. Please check files and asset names.")
-
-        # Initialize an empty combined_df with common columns and asset-specific columns
-        combined_columns = ['Date', 'Time', 'Sr No'] + ['tot_acc', 'ver_vel', 'ax_vel', 'hor_vel', 'temp', 'aud'] * len(asset_order)
-        combined_df = pd.DataFrame(columns=combined_columns)
-
-        excel_files = [f for f in os.listdir(folderpath) if f.endswith('.xlsx')]
-
-        for asset in asset_order:
-            asset_found = False
-
-            for file in excel_files:
-                file_path = os.path.join(folderpath, file)
-                try:
-                    df = pd.read_excel(file_path)
-                    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-                except Exception as e:
-                    continue
-
-                asset_name_values = df['asset_name'].iloc[1:3].values
-                if any(asset.strip() == value.strip() for value in asset_name_values):
-                    asset_found = True
-                    df = df.drop(columns=['asset_name'], errors='ignore')
-                    if combined_df.empty:
-                        common_cols = ['Date', 'Time', 'Sr No']
-                        combined_df = df[common_cols].copy()
-
-                    df = df.drop(columns=['Date', 'Time', 'Sr No'], errors='ignore')
-                    combined_df = pd.concat([combined_df, df], axis=1)
-
-            # If the asset file is missing, fill with zeros using renamed column labels
-            if not asset_found:
-                missing_data = pd.DataFrame(0, index=range(len(combined_df)), columns=['tot_acc', 'ver_vel', 'ax_vel', 'hor_vel', 'temp', 'aud'])
-                combined_df = pd.concat([combined_df, missing_data], axis=1)
-
-        if not combined_df.empty:
-            combined_df.fillna(0, inplace=True)
-            combined_df['Code'] = ''
-            combined_df.to_excel(test_file_path, index=False)
-            st.success("All files processed and combined successfully!")
+            
+            
+            # Identify the earliest start time in the data for this asset
+            start_time = asset_rows['DateTime'].min().replace(hour=5, minute=30)
+            end_time = start_time + timedelta(days=1, hours=0, minutes=0)
+            
+            # Filter rows within this 24-hour window (from earliest 5:30 AM to the next day 5:30 AM)
+            filtered_rows = asset_rows[(asset_rows['DateTime'] >= start_time) & (asset_rows['DateTime'] <= end_time)]
+            
+            # Select only the first 49 rows if there are more than 49 available
+            filtered_rows = filtered_rows.head(49)
+            
+            # Collect only the specified columns (F, I, L, O, R, U) for the 49 rows
+            data_for_asset = filtered_rows.iloc[:, required_column_indices].values
+            data_for_asset = pd.DataFrame(data_for_asset, columns=required_column_names)
+            
+            # Fill any missing rows with 0s if there are fewer than 49 rows
+            if len(data_for_asset) < 49:
+                missing_rows = 49 - len(data_for_asset)
+                data_for_asset = pd.concat([data_for_asset, pd.DataFrame(0, index=range(missing_rows), columns=required_column_names)], ignore_index=True)
         else:
-            st.error("No data found or processed. Please check files and asset names.")
+            # If no rows found for this asset, fill with 0s for all columns
+            data_for_asset = pd.DataFrame(0, index=range(49), columns=required_column_names)
 
+        # Rename columns to reflect asset-specific names (e.g., "a2" becomes "A1 GM 1 GB IP DE_a2")
+        #data_for_asset.columns = [f"{asset_name}_{col}" for col in required_column_names]#.................................................changes
+
+
+        
+        # Define the new column names you want to apply
+        required_column_names = ['tot_acc', 'ver_vel', 'ax_vel', 'hor_vel', 'temp', 'aud']
+        
+        # Assuming 'data_for_asset' is the DataFrame with columns to rename
+        data_for_asset.columns = required_column_names
+
+
+        # Concatenate the data for this asset horizontally to the output DataFrame
+        output_df = pd.concat([output_df, data_for_asset], axis=1)
+
+    # Generate Date, Time, and Sr No columns at 30-minute intervals
+    date_list = [(start_time + timedelta(minutes=30 * i)).strftime('%d %b %Y') for i in range(49)]
+    time_list = [(start_time + timedelta(minutes=30 * i)).strftime('%I:%M %p') for i in range(49)]
+    sr_no_list = list(range(1, 50))
 
     
 
-    except Exception as e:
-        st.error(f"An error occurred during processing: {e}")
+
+    # Insert Date, Time, and Sr No columns into the final output DataFrame
+    output_df.insert(0, 'Date', date_list)
+    output_df.insert(1, 'Time', time_list)
+    output_df.insert(2, 'Sr No', sr_no_list)
+
+    # Add an empty 'Code' column at the end
+    output_df['Code'] = '0'
 
 
-if st.button("Preprocess Files"):
-    preprocess_files()
+    # Save the processed data using ExcelWriter
+    with pd.ExcelWriter(test_file_path, engine='openpyxl') as writer:
+        output_df.to_excel(writer, index=False)
+
+    
+    # Display success message when all files are processed
+    st.info(f"Data has been processed and saved")
 
 
+# Create a button to trigger the process
+if st.button('Preprocess Data'):
+    process_data()
 
 
 
