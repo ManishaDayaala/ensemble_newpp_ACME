@@ -214,7 +214,7 @@ def process_data():
         #required_column_names = ['tot_acc', 'ver_vel', 'ax_vel', 'hor_vel', 'temp', 'aud']
         
         # Assuming 'data_for_asset' is the DataFrame with columns to rename
-        data_for_asset.columns = required_column_names
+        #data_for_asset.columns = required_column_names
 
 
         # Concatenate the data for this asset horizontally to the output DataFrame
