@@ -246,7 +246,7 @@ def process_data():
     st.info(f"Data has been processed and saved")
 
     # Print column names of the preprocessed dataset
-    st.write("Columns in the preprocessed dataset:", output_df.columns.tolist())
+    #st.write("Columns in the preprocessed dataset:", output_df.columns.tolist())
 
 
 
@@ -710,7 +710,7 @@ else:
                 # Extract relevant data for the selected asset and column type(s)
                 time_data = test_df['Time']
                 date_data = test_df['Date']
-                datetime_data = pd.to_datetime(date_data + ' ' + time_data, format='%d-%m-%Y %I:%M %p')
+                datetime_data = pd.to_datetime(date_data + ' ' + time_data, format='%d %b %Y %I:%M %p')
 
                 # Determine start and end dates for the X-axis label
                 start_date = datetime_data.min().strftime('%d-%m-%Y')
