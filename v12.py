@@ -152,7 +152,8 @@ def process_data():
     assets_list = [
         "A1 GM 1 GB IP DE", "A1 GM1 MDE", "A1 GM 2 GB IP DE", "A1 GM2 MDE",
         "A1 GM 3 GB IP DE", "A1 GM3 MDE", "A1 GM 4 GB IP DE", "A1 GM4 MDE",
-        "A1 GM 5 GB IP DE", "A1 GM5 MDE", "A1 GM 6 GB IP DE", "A1 GM6 MDE"
+        "A1 GM 5 GB IP DE", "A1 GM5 MDE", "A1 GM 6 GB IP DE", "A1 GM6 MDE" 
+
     ]
 
     # Columns to extract for each asset, corresponding to F, I, L, O, R, U
@@ -205,7 +206,7 @@ def process_data():
             data_for_asset = pd.DataFrame(0, index=range(49), columns=required_column_names)
 
         # Rename columns to reflect asset-specific names (e.g., "a2" becomes "A1 GM 1 GB IP DE_a2")
-        #data_for_asset.columns = [f"{asset_name}_{col}" for col in required_column_names]#.................................................changes
+        data_for_asset.columns = [f"{asset_name}_{col}" for col in required_column_names]#.................................................changes
 
 
         
