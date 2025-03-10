@@ -245,6 +245,10 @@ def process_data():
     # Display success message when all files are processed
     st.info(f"Data has been processed and saved")
 
+    # Print column names of the preprocessed dataset
+    st.write("Columns in the preprocessed dataset:", output_df.columns.tolist())
+
+
 
 # Create a button to trigger the process
 if st.button('Preprocess Data'):
