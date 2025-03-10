@@ -211,7 +211,7 @@ def process_data():
 
         
         # Define the new column names you want to apply
-        required_column_names = ['tot_acc', 'ver_vel', 'ax_vel', 'hor_vel', 'temp', 'aud']
+        #required_column_names = ['tot_acc', 'ver_vel', 'ax_vel', 'hor_vel', 'temp', 'aud']
         
         # Assuming 'data_for_asset' is the DataFrame with columns to rename
         data_for_asset.columns = required_column_names
