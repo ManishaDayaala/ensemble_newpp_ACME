@@ -236,6 +236,10 @@ def process_data():
     # Add an empty 'Code' column at the end
     output_df['Code'] = '0'
 
+    # Fill NaN values in the DataFrame with 0
+    output_df = output_df.fillna(0)
+
+
 
     # Save the processed data using ExcelWriter
     with pd.ExcelWriter(test_file_path, engine='openpyxl') as writer:
