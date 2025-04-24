@@ -17,7 +17,7 @@ def set_random_seed(seed_value=42):
     tf.random.set_seed(seed_value)
 
 # Define the main folder path
-MAINFOLDER = r"D:\APPdata"
+MAINFOLDER = r"./APPdata"
 
 # Create other paths relative to the main folder
 training_file_path = os.path.join(MAINFOLDER, "Training", "Training1.xlsx")  # FIXED TRAINING DATA
@@ -397,12 +397,12 @@ def predict_future_breakdown(test_file_path, model_folder_path):
 # ---------------------
 st.title("🔮 Predict Future Breakdown (24hr Ahead)")
 
-if st.button("Train Model"):
-    if training_file_path:
-        with st.spinner("Training ensemble model..."):
-            train_ensemble_model_shifted_label(training_file_path, model_folder_path)
-    else:
-        st.warning("Please upload the training file!")
+#if st.button("Train Model"):
+#   if training_file_path:
+#       with st.spinner("Training ensemble model..."):
+#           train_ensemble_model_shifted_label(training_file_path, model_folder_path)
+#    else:
+#        st.warning("Please upload the training file!")
 
 if st.button("Predict Future Breakdown"):
     if test_file_path:
@@ -608,10 +608,10 @@ st.title("Time Prediction")
 #....CHANGED........................................................................................................................................
 
 
-if st.button("Predict Time"):#, disabled=not st.session_state["check_bd_clicked"]):
-    #if st.session_state["bd_output"] == "No BD predicted":
-    #     st.error("No breakdown predicted. Cannot proceed with time prediction.")
-    #else:
+if st.button(("Predict Time"), disabled=not st.session_state["check_bd_clicked"]):
+    if st.session_state["bd_output"] == "No BD predicted":
+         st.error("No breakdown predicted. Cannot proceed with time prediction.")
+    else:
          with st.spinner("Training the model and making predictions..."):
              #train_model(training_file_path)
              result = predict_time(test_file_path)  # Predict time using predefined test data
