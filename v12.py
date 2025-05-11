@@ -266,90 +266,7 @@ def set_random_seed(seed=42):
     tf.random.set_seed(seed)
     random.seed(seed)
 
-# ---------------------
-# 📦 Training Function
-# ---------------------
-def train_ensemble_model_shifted_label(training_file_path, model_folder_path):
-    set_random_seed(seed=42)
 
-    df = pd.read_excel(training_file_path, sheet_name='Classification')
-    df['Code'] = df['Code'].shift(-48)  # Shift label 1 day ahead (48 half-hour intervals)
-    df.dropna(inplace=True)
-
-    X = df.iloc[:, 1:-1].values  # Sensor features
-    y = df['Code'].astype(int).values  # Shifted labels
-
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-    joblib.dump(scaler, os.path.join(model_folder_path, "scaler_shifted1234.pkl"))
-
-    X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42, stratify=y)
-
-    smote = SMOTE(random_state=42)
-    X_resampled, y_resampled = smote.fit_resample(X_train, y_train)
-
-
-    
-    # Sample weights for XGBoost
-    class_weights = {0: 1.0, 1: 30, 2: 50, 3: 30}
-    sample_weights = np.array([class_weights[int(label)] for label in y_resampled])
-
-    
-
-    xgb_model = XGBClassifier(
-        n_estimators=400,
-        objective='multi:softmax',
-        learning_rate=0.05,
-        max_depth=6,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        use_label_encoder=False,
-        eval_metric='mlogloss',
-        random_state=42,
-        num_class=4
-    )
-
-   
-    def build_nn_model():
-        model = Sequential()
-        model.add(Dense(128, activation='relu', input_shape=(X_resampled.shape[1],)))
-        model.add(Dropout(0.2))
-        model.add(Dense(64, activation='relu'))
-        model.add(Dropout(0.2))
-        model.add(Dense(32, activation='relu'))
-        model.add(Dense(4, activation='softmax'))  # 4 output classes
-
-        # Define class-specific alpha weights (adjust if needed)
-        alpha_weights = [1.0, 20.0, 20.0, 20.0]  # Code 0 gets less weight
-    
-        # Compile with focal loss
-        model.compile(
-            optimizer='adam',
-            loss=focal_loss(gamma=2., alpha=alpha_weights),
-            metrics=['accuracy']
-        )
-        return model
-
-
-    keras_model = KerasClassifier(
-        model=build_nn_model,
-        epochs=100,
-        batch_size=32,
-        verbose=0,
-        #class_weight=class_weights
-    )
-
-    # Ensemble
-    ensemble = VotingClassifier(
-        estimators=[
-        ('xgb', xgb_model), 
-        ('lstm', keras_model)],
-        voting='soft'
-    )
-
-    ensemble.fit(X_resampled, y_resampled)
-    joblib.dump(ensemble, os.path.join(model_folder_path, "ensemble_shifted_model1234.pkl"))
-    st.success("✅ Training completed and model saved!")
 
 # ---------------------
 # 🔮 Prediction Function
@@ -381,29 +298,24 @@ def predict_future_breakdown(test_file_path, model_folder_path):
 # ---------------------
 st.title("🔮 Predict Future Breakdown (24hr Ahead)")
 
-#if st.button("Train Model"):
-#    if training_file_path:
-#        with st.spinner("Training ensemble model..."):
-#            train_ensemble_model_shifted_label(training_file_path, model_folder_path)
-#    else:
-#        st.warning("Please upload the training file!")
 
-if st.button("Predict Future Breakdown"):
-    if test_file_path:
-        with st.spinner("Predicting..."):
-            result = predict_future_breakdown(test_file_path, model_folder_path)
-            st.subheader("🔍 Result:")
-            st.write(result)
-            # Store the result in session state
-            st.session_state["bd_output"] = result
-            
-            # Update session state based on the output
-            if result != "No BD predicted":
-                st.session_state["check_bd_clicked"] = True
-            else:
-                st.session_state["check_bd_clicked"] = False
-    else:
-        st.warning("Please upload today's data for prediction.")
+if st.button("Check BD Classification"):
+    with st.spinner("Checking breakdown..."):
+        # train_ensemble_model(training_file_path, model_folder_path)  # Train the model
+        result = predict_future_breakdown(test_file_path, model_folder_path)  # Predict breakdown
+        
+        # Store the result in session state
+        st.session_state["bd_output"] = result
+        
+        # Update session state based on the output
+        if result != "No BD predicted":
+            st.session_state["check_bd_clicked"] = True
+        else:
+            st.session_state["check_bd_clicked"] = False
+    
+    # Display the result
+    st.write(result)
+    st.success("Prediction complete!")
 
 
 ###########################                                    #######################################
@@ -592,7 +504,8 @@ st.title("Time Prediction")
 #....CHANGED........................................................................................................................................
 
 
-if st.button(("Predict Time"), disabled=not st.session_state["check_bd_clicked"]):
+
+if st.button("Predict Time", disabled=not st.session_state["check_bd_clicked"]):
     if st.session_state["bd_output"] == "No BD predicted":
          st.error("No breakdown predicted. Cannot proceed with time prediction.")
     else:
@@ -601,6 +514,7 @@ if st.button(("Predict Time"), disabled=not st.session_state["check_bd_clicked"]
              result = predict_time(test_file_path)  # Predict time using predefined test data
          st.write(f"Predicted Time to Breakdown: {result}")
          st.success("Prediction complete!")
+
 
 
 
