@@ -799,8 +799,7 @@ parameter_mapping = {
     'av2': 'Axial Velocity',
     'vv2': 'Vertical Velocity',
     'hv2': 'Horizontal Velocity',
-    't2': 'Temperature',
-    'd2': 'Audio'
+    't2': 'Temperature'
 }
 
 # Column types with "All" option for UI
