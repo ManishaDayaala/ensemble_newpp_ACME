@@ -157,8 +157,8 @@ def process_data():
     ]
 
     # Columns to extract for each asset, corresponding to F, I, L, O, R, U
-    required_column_indices = [5, 8, 11, 14, 17, 20]  # 0-based indices for F, I, L, O, R, U
-    required_column_names = ['a2', 'vv2', 'av2', 'hv2', 't2', 'd2']
+    required_column_indices = [5, 8, 11, 14, 17]  # 0-based indices for F, I, L, O, R, U
+    required_column_names = ['a2', 'vv2', 'av2', 'hv2', 't2']
 
     # Check if the output folder exists, if not, create it
     #if not os.path.isdir(test_file_path):
@@ -267,53 +267,189 @@ if st.button('Preprocess Data'):
 
 
 
-import tensorflow as tf
-import random
-import streamlit as st
+###################### DATA PREPROCESSING   ############################
+
 import os
 import pandas as pd
 import numpy as np
+from datetime import datetime, timedelta
+import streamlit as st
+
+def process_data():
+    
+    # Define the input file (only one file in the folder)
+    input_file_name = os.listdir(folderpath)[0]  # Assuming only one file in the folder
+    input_file_path = os.path.join(folderpath, input_file_name)
+
+    # Check if the input file exists
+    if not os.path.isfile(input_file_path):
+        st.error(f"Input file '{input_file_name}' does not exist!")
+        return
+
+    # List of 12 unique asset names
+    assets_list = [
+        "A1 GM 1 GB IP DE", "A1 GM1 MDE", "A1 GM 2 GB IP DE", "A1 GM2 MDE",
+        "A1 GM 3 GB IP DE", "A1 GM3 MDE", "A1 GM 4 GB IP DE", "A1 GM4 MDE",
+        "A1 GM 5 GB IP DE", "A1 GM5 MDE", "A1 GM 6 GB IP DE", "A1 GM6 MDE" 
+    ]
+
+    # Columns to extract for each asset, corresponding to F, I, L, O, R, U
+    required_column_indices = [5, 8, 11, 14, 17]  # 0-based indices for F, I, L, O, R, U
+    required_column_names = ['a2', 'vv2', 'av2', 'hv2', 't2']
+
+    # Load the input file
+    input_df = pd.read_excel(input_file_path)
+
+    # Initialize an empty DataFrame to store combined data
+    output_df = pd.DataFrame()
+
+    # Loop over each asset in assets_list
+    for asset_name in assets_list:
+        # Find rows where Column B (index 1) matches the asset_name
+        asset_rows = input_df[input_df.iloc[:, 1] == asset_name]
+        
+        # Check if any rows were found
+        if not asset_rows.empty:
+            # Parse the date and time from Column C (index 2)
+            asset_rows['DateTime'] = pd.to_datetime(asset_rows.iloc[:, 2], format='%d-%m-%Y %H:%M')
+
+            # Identify the earliest start time in the data for this asset
+            start_time = asset_rows['DateTime'].min().replace(hour=5, minute=30)
+            end_time = start_time + timedelta(days=1, hours=0, minutes=0)
+            
+            # Filter rows within this 24-hour window (from earliest 5:30 AM to the next day 5:30 AM)
+            filtered_rows = asset_rows[(asset_rows['DateTime'] >= start_time) & (asset_rows['DateTime'] <= end_time)]
+            
+            # Select only the first 49 rows if there are more than 49 available
+            filtered_rows = filtered_rows.head(49)
+            
+            # Collect only the specified columns (F, I, L, O, R, U) for the 49 rows
+            data_for_asset = filtered_rows.iloc[:, required_column_indices].values
+            data_for_asset = pd.DataFrame(data_for_asset, columns=required_column_names)
+
+            # Ensure all required columns exist and fill missing ones with zeros
+            for col in required_column_names:
+                if col not in data_for_asset.columns:
+                    data_for_asset[col] = 0
+
+            # Fill any missing rows with 0s if there are fewer than 49 rows
+            if len(data_for_asset) < 49:
+                missing_rows = 49 - len(data_for_asset)
+                data_for_asset = pd.concat([data_for_asset, pd.DataFrame(0, index=range(missing_rows), columns=required_column_names)], ignore_index=True)
+        else:
+            # If no rows found for this asset, fill with 0s for all columns
+            data_for_asset = pd.DataFrame(0, index=range(49), columns=required_column_names)
+
+        # Rename columns to reflect asset-specific names (e.g., "a2" becomes "A1 GM 1 GB IP DE_a2")
+        data_for_asset.columns = [f"{asset_name}_{col}" for col in required_column_names]
+
+        # Concatenate the data for this asset horizontally to the output DataFrame
+        output_df = pd.concat([output_df, data_for_asset], axis=1)
+
+    # Generate Date, Time, and Sr No columns at 30-minute intervals
+    date_list = [(start_time + timedelta(minutes=30 * i)).strftime('%d %b %Y') for i in range(49)]
+    time_list = [(start_time + timedelta(minutes=30 * i)).strftime('%I:%M %p') for i in range(49)]
+    sr_no_list = list(range(1, 50))
+
+    # Insert Date, Time, and Sr No columns into the final output DataFrame
+    output_df.insert(0, 'Date', date_list)
+    output_df.insert(1, 'Time', time_list)
+    output_df.insert(2, 'Sr No', sr_no_list)
+
+    # Add an empty 'Code' column at the end
+    output_df['Code'] = 0
+
+    # Fill NaN values in the DataFrame with 0
+    output_df = output_df.fillna(0)
+
+
+    # Save the processed data using ExcelWriter
+    with pd.ExcelWriter(test_file_path, engine='openpyxl') as writer:
+        output_df.to_excel(writer, index=False)
+
+    # Display success message when all files are processed
+    st.info(f"Data has been processed and saved")
+
+# Create a button to trigger the process
+if st.button('Preprocess Data'):
+    process_data()
+
+
+
+
+#################### Classification    ###############################
+
+# 🚀 Install if not already done:
+# pip install pandas numpy scikit-learn xgboost imbalanced-learn tensorflow joblib streamlit openpyxl
+
+import streamlit as st
+import numpy as np
+import pandas as pd
 import joblib
+import tensorflow as tf
+import os
+import random
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import classification_report
 from imblearn.over_sampling import SMOTE
-import xgboost as xgb
-from scikeras.wrappers import KerasClassifier
+from xgboost import XGBClassifier
 from sklearn.ensemble import VotingClassifier
+from scikeras.wrappers import KerasClassifier
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Dropout
+from tensorflow.keras.layers import LSTM, Dense, Dropout, Reshape
 
-# Set random seed for reproducibility
+# ---------------------
+# ⚙️ Set random seed
+# ---------------------
 def set_random_seed(seed=42):
     np.random.seed(seed)
-    random.seed(seed)
     tf.random.set_seed(seed)
+    random.seed(seed)
 
-# Define the training function
-def train_ensemble_model(training_file_path, model_folder_path):
-    def load_data(file_path):
-        df = pd.read_excel(file_path, sheet_name= 'Classification')        
-        X = df.iloc[:, 3:-1].values  # Features (assuming columns 3 to second last)
-        y = df['Code'].values  # Target column
-        return X, y
+# ---------------------
+# 📦 Training Function
+# ---------------------
+def train_ensemble_model_shifted_label(training_file_path, model_folder_path):
+    set_random_seed(seed=42)
 
-    def preprocess_data(X, y):
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
+    df = pd.read_excel(training_file_path, sheet_name='Classification')
+    df['Code'] = df['Code'].shift(-48)  # Shift label 1 day ahead (48 half-hour intervals)
+    df.dropna(inplace=True)
 
-        # Save the scaler
-        joblib.dump(scaler, os.path.join(model_folder_path, "scaler_nn12345678912.pkl"))
+    X = df.iloc[:, 1:-1].values  # Sensor features
+    y = df['Code'].astype(int).values  # Shifted labels
 
-        # Split into training and validation sets
-        X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.01, random_state=42, shuffle=True)
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    joblib.dump(scaler, os.path.join(model_folder_path, "scaler_shifted1234.pkl"))
 
-        # Handle imbalance with SMOTE
-        smote = SMOTE(random_state=42)
-        X_resampled, y_resampled = smote.fit_resample(X_train, y_train)
-        
-        return X_resampled, X_test, y_resampled, y_test
+    X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42, stratify=y)
 
+    smote = SMOTE(random_state=42)
+    X_resampled, y_resampled = smote.fit_resample(X_train, y_train)
+
+
+    
+    # Sample weights for XGBoost
+    class_weights = {0: 1.0, 1: 30, 2: 50, 3: 30}
+    sample_weights = np.array([class_weights[int(label)] for label in y_resampled])
+
+    
+
+    xgb_model = XGBClassifier(
+        n_estimators=400,
+        objective='multi:softmax',
+        learning_rate=0.05,
+        max_depth=6,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        use_label_encoder=False,
+        eval_metric='mlogloss',
+        random_state=42,
+        num_class=4
+    )
+
+   
     def build_nn_model():
         model = Sequential()
         model.add(Dense(128, activation='relu', input_shape=(X_resampled.shape[1],)))
@@ -321,104 +457,93 @@ def train_ensemble_model(training_file_path, model_folder_path):
         model.add(Dense(64, activation='relu'))
         model.add(Dropout(0.2))
         model.add(Dense(32, activation='relu'))
-        model.add(Dense(4, activation='softmax'))  # 4 output units for the 4 classes
-        model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])  # Use sparse_categorical_crossentropy
+        model.add(Dense(4, activation='softmax'))  # 4 output classes
+
+        # Define class-specific alpha weights (adjust if needed)
+        alpha_weights = [1.0, 20.0, 20.0, 20.0]  # Code 0 gets less weight
+    
+        # Compile with focal loss
+        model.compile(
+            optimizer='adam',
+            loss=focal_loss(gamma=2., alpha=alpha_weights),
+            metrics=['accuracy']
+        )
         return model
 
-    # Set random seed
-    set_random_seed()
 
-    # Load and preprocess data
-    X, y = load_data(training_file_path)
-    X_resampled, X_test, y_resampled, y_test = preprocess_data(X, y)
+    keras_model = KerasClassifier(
+        model=build_nn_model,
+        epochs=100,
+        batch_size=32,
+        verbose=0,
+        #class_weight=class_weights
+    )
 
-    # Class weights for Keras model
-    class_weights_nn = {0: 1.0, 1: 30, 2: 30, 3: 30}
+    # Ensemble
+    ensemble = VotingClassifier(
+        estimators=[
+        ('xgb', xgb_model), 
+        ('lstm', keras_model)],
+        voting='soft'
+    )
 
-    # Build Keras model
-    nn_model = KerasClassifier(model=build_nn_model, epochs=50, batch_size=32, verbose=0, class_weight=class_weights_nn)
+    ensemble.fit(X_resampled, y_resampled)
+    joblib.dump(ensemble, os.path.join(model_folder_path, "ensemble_shifted_model1234.pkl"))
+    st.success("✅ Training completed and model saved!")
 
-    # Calculate sample weights for XGBoost
-    sample_weights = np.array([class_weights_nn[int(label)] for label in y_resampled])
+# ---------------------
+# 🔮 Prediction Function
+# ---------------------
+def predict_future_breakdown(test_file_path, model_folder_path):
+    set_random_seed(seed=42)
+    df = pd.read_excel(test_file_path)
+    X = df.iloc[:, 3:-1].values  # All features
 
-    # XGBoost model
-    xgb_model = xgb.XGBClassifier(objective='multi:softmax', num_class=4, eval_metric='mlogloss', sample_weight=sample_weights, random_state=42)
+    scaler = joblib.load(os.path.join(model_folder_path, "scaler_shifted1234.pkl"))
+    X_scaled = scaler.transform(X)
 
-    # Ensemble model
-    ensemble_model = VotingClassifier(estimators=[
-        ('xgb', xgb_model),
-        ('nn', nn_model)
-    ], voting='soft')
+    model = joblib.load(os.path.join(model_folder_path, "ensemble_shifted_model1234.pkl"))
+    preds = model.predict(X_scaled)
 
-    # Train the ensemble model
-    ensemble_model.fit(X_resampled, y_resampled)
+    labels = ["Code 0", "Code 1", "Code 2", "Code 3"]
+    result_labels = [labels[p] for p in preds]
 
-    # Save the trained model
-    joblib.dump(ensemble_model, os.path.join(model_folder_path, "nn_model12345678912.pkl"))
-    st.success("Ensemble model training completed and saved!")
-
-# Define the prediction function
-def predict_ensemble(test_file_path, model_folder_path):
-    def load_test_data(file_path):
-        df = pd.read_excel(file_path)
-        X_test = df.iloc[:, 3:-1].values
-        return df, X_test
-
-    def preprocess_test_data(X_test):
-        scaler = joblib.load(os.path.join(model_folder_path, "scaler_nn12345678912.pkl"))
-        X_test_scaled = scaler.transform(X_test)
-        return X_test_scaled
-
-    def predict(X_test_scaled):
-        ensemble_model = joblib.load(os.path.join(model_folder_path, "nn_model12345678912.pkl"))
-        predictions = ensemble_model.predict(X_test_scaled)
-        return predictions
-
-    set_random_seed()
-
-    try:
-        df, X_test = load_test_data(test_file_path)
-        X_test_scaled = preprocess_test_data(X_test)
-        predictions = predict(X_test_scaled)
-
-        breakdown_codes = ["Code 0", "Code 1", "Code 2", "Code 3"]
-        predicted_labels = [breakdown_codes[p] for p in predictions]
-
-        # Check if any non-zero breakdown code (Code 1, 2, or 3) is predicted
-        non_zero_codes = [code for code in predicted_labels if "Code 1" in code or "Code 2" in code or "Code 3" in code]
-        
-        if non_zero_codes:
-            unique_non_zero_codes = set(non_zero_codes)
-            return f"Breakdown of {', '.join(unique_non_zero_codes)} might occur."
-        else:
-            return "No BD predicted"
-    except Exception as e:
-        return f"Error: {e}"
-
-# Streamlit app UI
-st.title("Breakdown Code Classification")
+    non_zero = [lbl for lbl in result_labels if lbl != "Code 0"]
+    if non_zero:
+        return f"🚨 Potential Breakdown(s): {', '.join(set(non_zero))}"
+    else:
+        return "✅ No BD predicted"
 
 
 
-#...CHNAGED................................................................................................................................................
+# ---------------------
+# 🌐 Streamlit UI
+# ---------------------
+st.title("🔮 Predict Future Breakdown (24hr Ahead)")
 
-if st.button("Check BD Classification"):
-    with st.spinner("Checking breakdown..."):
-        #train_ensemble_model(training_file_path, model_folder_path)  # Train the model
-        result = predict_ensemble(test_file_path, model_folder_path)  # Predict breakdown
-        
-        # Store the result in session state
-        st.session_state["bd_output"] = result
-        
-        # Update session state based on the output
-        if result != "No BD predicted":
-            st.session_state["check_bd_clicked"] = True
-        else:
-            st.session_state["check_bd_clicked"] = False
-    
-    # Display the result
-    st.write(result)
-    st.success("Prediction complete!")
+#if st.button("Train Model"):
+#    if training_file_path:
+#        with st.spinner("Training ensemble model..."):
+#            train_ensemble_model_shifted_label(training_file_path, model_folder_path)
+#    else:
+#        st.warning("Please upload the training file!")
+
+if st.button("Predict Future Breakdown"):
+    if test_file_path:
+        with st.spinner("Predicting..."):
+            result = predict_future_breakdown(test_file_path, model_folder_path)
+            st.subheader("🔍 Result:")
+            st.write(result)
+            # Store the result in session state
+            st.session_state["bd_output"] = result
+            
+            # Update session state based on the output
+            if result != "No BD predicted":
+                st.session_state["check_bd_clicked"] = True
+            else:
+                st.session_state["check_bd_clicked"] = False
+    else:
+        st.warning("Please upload today's data for prediction.")
 
 
 ###########################                                    #######################################
@@ -463,8 +588,8 @@ def set_random_seed(seed=42):
 def train_model(training_file_path):
     def load_data(file_path):
         df = pd.read_excel(file_path, sheet_name="Time")
-        X = df.iloc[:, 1:72].values
-        y = df.iloc[:, 73].values
+        X = df.iloc[:, 1:-1].values
+        y = df.iloc[:, -1].values
         return X, y
 
     def preprocess_data(X, y):
@@ -474,10 +599,10 @@ def train_model(training_file_path):
         
         # Use a fixed random_state to ensure reproducibility
         X_train, X_val, y_train, y_val = train_test_split(X_filtered, y_filtered, test_size=0.01, random_state=42)
-        scaler = StandardScaler()
+        scaler = StandardScaler()                                                                                                        
         X_train_scaled = scaler.fit_transform(X_train)
         X_val_scaled = scaler.transform(X_val)
-        joblib.dump(scaler, os.path.join(model_folder_path, 'scalerfinT111.pkl'))
+        joblib.dump(scaler, os.path.join(model_folder_path, 'scaler_time_changed.pkl'))
         return X_train_scaled, X_val_scaled, y_train, y_val
 
     def build_model(input_shape):
@@ -498,7 +623,7 @@ def train_model(training_file_path):
 
     early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
     model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=100, batch_size=32, callbacks=[early_stopping])
-    model.save(os.path.join(model_folder_path, 'trained_modelFINT111.h5'))
+    model.save(os.path.join(model_folder_path, 'trained_time_changed.h5'))
 
 # Define the prediction function
 def predict_time(test_file_path):
@@ -506,16 +631,16 @@ def predict_time(test_file_path):
         df = pd.read_excel(file_path)
         serial_numbers = df.iloc[:, 2].values
         times = df.iloc[:, 1].values
-        X_test = df.iloc[:, 3:74].values
+        X_test = df.iloc[:, 3:-1].values
         return df, X_test, serial_numbers, times
 
     def preprocess_test_data(X_test):
-        scaler = joblib.load(os.path.join(model_folder_path, 'scalerfinT111.pkl'))
+        scaler = joblib.load(os.path.join(model_folder_path, 'scaler_time_changed.pkl'))
         X_test_scaled = scaler.transform(X_test)
         return X_test_scaled
 
     def predict_time_to_breakdown(X_test_scaled):
-        model = load_model(os.path.join(model_folder_path, 'trained_modelFINT111.h5'))
+        model = load_model(os.path.join(model_folder_path, 'trained_time_changed.h5'))
         predictions = model.predict(X_test_scaled)
         return predictions
 
@@ -583,10 +708,8 @@ def predict_time(test_file_path):
     
        
     
-        # Return the final weighted breakdown time
-        # Choose the output based on the condition
-        final_output_time = max(24,min(24 + (0.4*min_time + 0.6*max_time),48))
-        
+        final_output_time = 0.4 * min_time + 0.6 * max_time
+
 
         
 
@@ -609,7 +732,7 @@ st.title("Time Prediction")
 #....CHANGED........................................................................................................................................
 
 
-if st.button("Predict Time", disabled=not st.session_state["check_bd_clicked"]):
+if st.button(("Predict Time"), disabled=not st.session_state["check_bd_clicked"]):
     if st.session_state["bd_output"] == "No BD predicted":
          st.error("No breakdown predicted. Cannot proceed with time prediction.")
     else:
@@ -619,15 +742,173 @@ if st.button("Predict Time", disabled=not st.session_state["check_bd_clicked"]):
          st.write(f"Predicted Time to Breakdown: {result}")
          st.success("Prediction complete!")
 
-# # Streamlit app UI
-# st.title("Time Prediction")
 
-#if st.button("Predict Time"):
-#   with st.spinner("Training the model and making predictions..."):
-#       train_model(training_file_path)
-#        result = predict_time(test_file_path)  # Predict time using predefined test data
-#    st.write(f"Predicted Time to Breakdown: {result}")
- #   st.success("Prediction complete!")
+
+
+
+
+##########################  LSTM Autoencoder for Anomaly Detection ###############################
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+import os
+import joblib
+import tensorflow as tf
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import Model, load_model
+from tensorflow.keras.layers import Input, LSTM, RepeatVector, TimeDistributed, Dense
+
+# Set random seed
+def set_random_seed(seed=42):
+    np.random.seed(seed)
+    tf.random.set_seed(seed)
+
+# Function to train the LSTM autoencoder model
+def train_lstm_autoencoder_model(training_file_path, model_folder_path):
+    set_random_seed()
+
+    # Load and preprocess training data
+    df = pd.read_excel(training_file_path)
+    #df = df.dropna()
+
+    
+    column_names_train = df.columns[1:-1]
+    X = df[[col for col in column_names_train if not col.endswith(('_d2', '_t2'))]]
+
+    # Normalize data
+    scaler = MinMaxScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    # Save the scaler
+    joblib.dump(scaler, os.path.join(model_folder_path, "lstm_auto_scaler1.pkl"))
+
+    # Reshape to 3D for LSTM (samples, time_steps, features)
+    TIME_STEPS = 10
+    def create_sequences(data, time_steps=TIME_STEPS):
+        seqs = []
+        for i in range(len(data) - time_steps):
+            seqs.append(data[i:i + time_steps])
+        return np.array(seqs)
+    
+    X_seq = create_sequences(X_scaled)
+
+    # Define LSTM Autoencoder model
+    inputs = Input(shape=(TIME_STEPS, X_seq.shape[2]))
+    encoded = LSTM(64, activation="relu", return_sequences=False)(inputs)
+    decoded = RepeatVector(TIME_STEPS)(encoded)
+    decoded = LSTM(64, activation="relu", return_sequences=True)(decoded)
+    decoded = TimeDistributed(Dense(X_seq.shape[2]))(decoded)
+
+    autoencoder = Model(inputs, decoded)
+    autoencoder.compile(optimizer="adam", loss=tf.keras.losses.MeanSquaredError())
+
+    # Train the model
+    autoencoder.fit(X_seq, X_seq, epochs=20, batch_size=64, shuffle=True)
+
+    # Save model
+    autoencoder.save(os.path.join(model_folder_path, "lstm_auto_model1.h5"))                    
+
+    st.success("LSTM Autoencoder training completed and model saved!")
+
+def predict_lstm_autoencoder(test_file_path, model_folder_path):
+    set_random_seed()
+    import pandas as pd
+    # Load test data
+    df_test = pd.read_excel(test_file_path)
+
+    column_names = df_test.columns[3:-1]
+    X_test = df_test[[col for col in column_names if not col.endswith(('_d2', '_t2'))]]
+
+    # Load scaler and scale
+    scaler = joblib.load(os.path.join(model_folder_path, "lstm_auto_scaler1.pkl"))
+    X_test_scaled = scaler.transform(X_test)
+
+    # Create sequences
+    TIME_STEPS = 10
+    def create_sequences(data, time_steps=TIME_STEPS):
+        seqs = []
+        for i in range(len(data) - time_steps):
+            seqs.append(data[i:i + time_steps])
+        return np.array(seqs)
+
+    X_test_seq = create_sequences(X_test_scaled)
+
+    # Load model
+    model = load_model(os.path.join(model_folder_path, "lstm_auto_model1.h5"))
+
+    # Predict and calculate reconstruction error per feature
+    X_pred = model.predict(X_test_seq)
+    errors = np.mean(np.abs(X_pred - X_test_seq), axis=1)  # shape: (samples, features)
+
+    # Threshold (e.g., 95th percentile of average feature-wise errors)
+    overall_mae = np.mean(errors, axis=1)
+    threshold = np.percentile(overall_mae, 95)
+
+    anomaly_indices = np.where(overall_mae > threshold)[0]
+    feature_anomalies = np.where(errors[anomaly_indices] > np.percentile(errors, 95), 1, 0)
+
+    sensor_dict = {}
+
+    for idx, feature_row in enumerate(feature_anomalies):
+        for f_idx, is_anomaly in enumerate(feature_row):
+            if is_anomaly:
+                feature_name = column_names[f_idx]
+                sensor_id = feature_name.split('_')[0]  # e.g., "Sensor3" from "Sensor3_Temperature"
+                if sensor_id not in sensor_dict:
+                    sensor_dict[sensor_id] = {"count": 0, "params": set()}
+                sensor_dict[sensor_id]["count"] += 1
+                sensor_dict[sensor_id]["params"].add(feature_name)
+
+    # Filter only sensors with anomaly count > 30
+    filtered_dict = {sensor: info for sensor, info in sensor_dict.items() if info["count"] > 15}
+
+    if not filtered_dict:
+        st.session_state["check_bd_clicked"] = False
+        st.success("✅ No abnormalities detected in any sensor.")
+        return "✅ No abnormalities detected in any sensor."
+
+    # Display in table format
+    import pandas as pd
+    table_data = {
+        "Sensor Having Abnormality": [],
+        "Affected Parameters": [],
+        "Anomaly Count": []
+    }
+
+    for sensor, info in filtered_dict.items():
+        table_data["Sensor Having Abnormality"].append(sensor)
+        table_data["Affected Parameters"].append(", ".join(info["params"]))
+        table_data["Anomaly Count"].append(info["count"])
+
+    df_result = pd.DataFrame(table_data)
+
+    st.session_state["check_bd_clicked"] = True
+    st.warning("🚨 Abnormalities Detected")
+    st.dataframe(df_result, use_container_width=True)
+
+    return df_result
+
+# Streamlit app UI
+st.title("Anamoly Detector")
+
+
+# Inside Streamlit UI
+if st.button("Check abnormality in sensors"):
+    with st.spinner("🔍 Checking for abnormality..."):
+        #train_lstm_autoencoder_model(training_file_path, model_folder_path)
+        result = predict_lstm_autoencoder(test_file_path, model_folder_path)
+        st.session_state["Anamoly_output"] = result
+
+        if isinstance(result, str):  # Means no anomaly case
+            st.markdown(f"```text\n{result}\n```")
+        else:
+            st.success("✅ Anomaly detection complete!")
+
+
+
+
+
 
 
 
