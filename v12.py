@@ -127,146 +127,6 @@ if st.button("Save Files"):
 
 
 
-
-
-###################### DATA PREPROCESSING   ############################
-
-import os
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-import streamlit as st
-
-def process_data():
-    
-    # Define the input file (only one file in the folder)
-    input_file_name = os.listdir(folderpath)[0]  # Assuming only one file in the folder
-    input_file_path = os.path.join(folderpath, input_file_name)
-
-    # Check if the input file exists
-    if not os.path.isfile(input_file_path):
-        st.error(f"Input file '{input_file_name}' does not exist!")
-        return
-
-    # List of 12 unique asset names
-    assets_list = [
-        "A1 GM 1 GB IP DE", "A1 GM1 MDE", "A1 GM 2 GB IP DE", "A1 GM2 MDE",
-        "A1 GM 3 GB IP DE", "A1 GM3 MDE", "A1 GM 4 GB IP DE", "A1 GM4 MDE",
-        "A1 GM 5 GB IP DE", "A1 GM5 MDE", "A1 GM 6 GB IP DE", "A1 GM6 MDE" 
-
-    ]
-
-    # Columns to extract for each asset, corresponding to F, I, L, O, R, U
-    required_column_indices = [5, 8, 11, 14, 17]  # 0-based indices for F, I, L, O, R, U
-    required_column_names = ['a2', 'vv2', 'av2', 'hv2', 't2']
-
-    # Check if the output folder exists, if not, create it
-    #if not os.path.isdir(test_file_path):
-        #os.makedirs(test_file_path)
-        #st.info(f"Output folder '{test_file_path}' created!")
-
-    # Load the input file
-    input_df = pd.read_excel(input_file_path)
-
-    # Initialize an empty DataFrame to store combined data
-    output_df = pd.DataFrame()
-
-    # Loop over each asset in assets_list
-    for asset_name in assets_list:
-        # Find rows where Column B (index 1) matches the asset_name
-        asset_rows = input_df[input_df.iloc[:, 1] == asset_name]
-        
-        # Check if any rows were found
-        if not asset_rows.empty:
-            # Parse the date and time from Column C (index 2)
-            asset_rows['DateTime'] = pd.to_datetime(asset_rows.iloc[:, 2], format='%d-%m-%Y %H:%M')
-
-            
-            
-            # Identify the earliest start time in the data for this asset
-            start_time = asset_rows['DateTime'].min().replace(hour=5, minute=30)
-            end_time = start_time + timedelta(days=1, hours=0, minutes=0)
-            
-            # Filter rows within this 24-hour window (from earliest 5:30 AM to the next day 5:30 AM)
-            filtered_rows = asset_rows[(asset_rows['DateTime'] >= start_time) & (asset_rows['DateTime'] <= end_time)]
-            
-            # Select only the first 49 rows if there are more than 49 available
-            filtered_rows = filtered_rows.head(49)
-            
-            # Collect only the specified columns (F, I, L, O, R, U) for the 49 rows
-            data_for_asset = filtered_rows.iloc[:, required_column_indices].values
-            data_for_asset = pd.DataFrame(data_for_asset, columns=required_column_names)
-            
-            # Fill any missing rows with 0s if there are fewer than 49 rows
-            if len(data_for_asset) < 49:
-                missing_rows = 49 - len(data_for_asset)
-                data_for_asset = pd.concat([data_for_asset, pd.DataFrame(0, index=range(missing_rows), columns=required_column_names)], ignore_index=True)
-        else:
-            # If no rows found for this asset, fill with 0s for all columns
-            data_for_asset = pd.DataFrame(0, index=range(49), columns=required_column_names)
-
-        # Rename columns to reflect asset-specific names (e.g., "a2" becomes "A1 GM 1 GB IP DE_a2")
-        data_for_asset.columns = [f"{asset_name}_{col}" for col in required_column_names]#.................................................changes
-
-
-        
-        # Define the new column names you want to apply
-        #required_column_names = ['tot_acc', 'ver_vel', 'ax_vel', 'hor_vel', 'temp', 'aud']
-        
-        # Assuming 'data_for_asset' is the DataFrame with columns to rename
-        #data_for_asset.columns = required_column_names
-
-
-        # Concatenate the data for this asset horizontally to the output DataFrame
-        output_df = pd.concat([output_df, data_for_asset], axis=1)
-
-    # Generate Date, Time, and Sr No columns at 30-minute intervals
-    date_list = [(start_time + timedelta(minutes=30 * i)).strftime('%d %b %Y') for i in range(49)]
-    time_list = [(start_time + timedelta(minutes=30 * i)).strftime('%I:%M %p') for i in range(49)]
-    sr_no_list = list(range(1, 50))
-
-    
-
-
-    # Insert Date, Time, and Sr No columns into the final output DataFrame
-    output_df.insert(0, 'Date', date_list)
-    output_df.insert(1, 'Time', time_list)
-    output_df.insert(2, 'Sr No', sr_no_list)
-
-    # Add an empty 'Code' column at the end
-    output_df['Code'] = '0'
-
-    # Fill NaN values in the DataFrame with 0
-    output_df = output_df.fillna(0)
-
-
-
-    # Save the processed data using ExcelWriter
-    with pd.ExcelWriter(test_file_path, engine='openpyxl') as writer:
-        output_df.to_excel(writer, index=False)
-
-    
-    # Display success message when all files are processed
-    st.info(f"Data has been processed and saved")
-
-    # Print column names of the preprocessed dataset
-    #st.write("Columns in the preprocessed dataset:", output_df.columns.tolist())
-
-
-
-# Create a button to trigger the process
-if st.button('Preprocess Data'):
-    process_data()
-
-
-
-
-#################### Classification    ###############################
-
-
-
-
-
 ###################### DATA PREPROCESSING   ############################
 
 import os
@@ -499,10 +359,10 @@ def predict_future_breakdown(test_file_path, model_folder_path):
     df = pd.read_excel(test_file_path)
     X = df.iloc[:, 3:-1].values  # All features
 
-    scaler = joblib.load(os.path.join(model_folder_path, "scaler_shifted1234.pkl"))
+    scaler = joblib.load(os.path.join(model_folder_path, "scaler_shifted12.pkl"))
     X_scaled = scaler.transform(X)
 
-    model = joblib.load(os.path.join(model_folder_path, "ensemble_shifted_model1234.pkl"))
+    model = joblib.load(os.path.join(model_folder_path, "ensemble_shifted_model12.pkl"))
     preds = model.predict(X_scaled)
 
     labels = ["Code 0", "Code 1", "Code 2", "Code 3"]
@@ -939,8 +799,7 @@ parameter_mapping = {
     'av2': 'Axial Velocity',
     'vv2': 'Vertical Velocity',
     'hv2': 'Horizontal Velocity',
-    't2': 'Temperature',
-    'd2': 'Audio'
+    't2': 'Temperature'
 }
 
 # Column types with "All" option for UI
