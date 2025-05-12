@@ -296,26 +296,24 @@ def predict_future_breakdown(test_file_path, model_folder_path):
 # ---------------------
 # 🌐 Streamlit UI
 # ---------------------
-st.title("🔮 Predict Future Breakdown (24hr Ahead)")
+st.title("🔮 Predict Breakdown")
 
 
-if st.button("Check BD Classification"):
-    with st.spinner("Checking breakdown..."):
-        # train_ensemble_model(training_file_path, model_folder_path)  # Train the model
-        result = predict_future_breakdown(test_file_path, model_folder_path)  # Predict breakdown
-        
-        # Store the result in session state
-        st.session_state["bd_output"] = result
-        
-        # Update session state based on the output
-        if result != "No BD predicted":
-            st.session_state["check_bd_clicked"] = True
-        else:
-            st.session_state["check_bd_clicked"] = False
-    
-    # Display the result
-    st.write(result)
-    st.success("Prediction complete!")
+if st.button("Predict Breakdown"):
+    if test_file_path:
+        with st.spinner("Predicting..."):
+            result = predict_future_breakdown(test_file_path, model_folder_path)
+            st.subheader("🔍 Result:")
+            st.write(result)
+            st.session_state["bd_output"] = result
+            
+            if result != "✅ No BD predicted":
+                st.session_state["check_bd_clicked"] = True
+            else:
+                st.session_state["check_bd_clicked"] = False
+    else:
+        st.warning("Please upload today's data for prediction.")
+
 
 
 ###########################                                    #######################################
