@@ -1,20 +1,5 @@
 
-#!/usr/bin/env python
-# coding: utf-8
 
-# In[ ]:
-
-
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[ ]:
-
-
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[ ]:
 
 
 import os
@@ -58,11 +43,6 @@ uploaded_files = []  # List to keep track of uploaded files
 # Streamlit UI
 st.title("Breakdown Predictor-ACME-1(CRP)")
 st.markdown("Upload your files, and they will be preprocessed accordingly.")
-
-# File Upload Section
-#uploaded_files = st.file_uploader("Upload Excel files", type=['xlsx'], accept_multiple_files=True)
-
-#uploaded_files = st.file_uploader("Drop files here:", accept_multiple_files=True, on_change=lambda: on_file_drop(uploaded_files))
 
 
 # Show status
@@ -135,15 +115,12 @@ import numpy as np
 from datetime import datetime, timedelta
 import streamlit as st
 
-def process_data():
-    
-    # Define the input file (only one file in the folder)
-    input_file_name = os.listdir(folderpath)[0]  # Assuming only one file in the folder
-    input_file_path = os.path.join(folderpath, input_file_name)
+def process_all_files():
+    # Get list of all Excel files in the folder
+    excel_files = [file for file in os.listdir(folderpath) if file.endswith(('.xlsx', '.xls'))]
 
-    # Check if the input file exists
-    if not os.path.isfile(input_file_path):
-        st.error(f"Input file '{input_file_name}' does not exist!")
+    if not excel_files:
+        st.error("No Excel files found in the folder!")
         return
 
     # List of 12 unique asset names
@@ -157,90 +134,85 @@ def process_data():
     required_column_indices = [5, 8, 11, 14, 17]  # 0-based indices for F, I, L, O, R, U
     required_column_names = ['a2', 'vv2', 'av2', 'hv2', 't2']
 
-    # Load the input file
-    input_df = pd.read_excel(input_file_path)
+     # Master output DataFrame
+    master_df = pd.DataFrame()
 
-    # Initialize an empty DataFrame to store combined data
-    output_df = pd.DataFrame()
+    # Process each file
+    for input_file_name in excel_files:
+        input_file_path = os.path.join(folderpath, input_file_name)
+        try:
+            input_df = pd.read_excel(input_file_path)
+        except Exception as e:
+            st.warning(f"Could not read file {input_file_name}: {e}")
+            continue
 
-    # Loop over each asset in assets_list
-    for asset_name in assets_list:
-        # Find rows where Column B (index 1) matches the asset_name
-        asset_rows = input_df[input_df.iloc[:, 1] == asset_name]
-        
-        # Check if any rows were found
-        if not asset_rows.empty:
-            # Parse the date and time from Column C (index 2)
-            asset_rows['DateTime'] = pd.to_datetime(asset_rows.iloc[:, 2], format='%d-%m-%Y %H:%M')
+        output_df = pd.DataFrame()
 
-            # Identify the earliest start time in the data for this asset
-            start_time = asset_rows['DateTime'].min().replace(hour=5, minute=30)
-            end_time = start_time + timedelta(days=1, hours=0, minutes=0)
-            
-            # Filter rows within this 24-hour window (from earliest 5:30 AM to the next day 5:30 AM)
-            filtered_rows = asset_rows[(asset_rows['DateTime'] >= start_time) & (asset_rows['DateTime'] <= end_time)]
-            
-            # Select only the first 49 rows if there are more than 49 available
-            filtered_rows = filtered_rows.head(49)
-            
-            # Collect only the specified columns (F, I, L, O, R, U) for the 49 rows
-            data_for_asset = filtered_rows.iloc[:, required_column_indices].values
-            data_for_asset = pd.DataFrame(data_for_asset, columns=required_column_names)
+        for asset_name in assets_list:
+            asset_rows = input_df[input_df.iloc[:, 1] == asset_name]
 
-            # Ensure all required columns exist and fill missing ones with zeros
-            for col in required_column_names:
-                if col not in data_for_asset.columns:
-                    data_for_asset[col] = 0
+            if not asset_rows.empty:
+                asset_rows['DateTime'] = pd.to_datetime(asset_rows.iloc[:, 2], format='%d-%m-%Y %H:%M', errors='coerce')
+                asset_rows = asset_rows.dropna(subset=['DateTime'])
 
-            # Fill any missing rows with 0s if there are fewer than 49 rows
-            if len(data_for_asset) < 49:
-                missing_rows = 49 - len(data_for_asset)
-                data_for_asset = pd.concat([data_for_asset, pd.DataFrame(0, index=range(missing_rows), columns=required_column_names)], ignore_index=True)
-        else:
-            # If no rows found for this asset, fill with 0s for all columns
-            data_for_asset = pd.DataFrame(0, index=range(49), columns=required_column_names)
+                if asset_rows.empty:
+                    continue
 
-        # Rename columns to reflect asset-specific names (e.g., "a2" becomes "A1 GM 1 GB IP DE_a2")
-        data_for_asset.columns = [f"{asset_name}_{col}" for col in required_column_names]
+                start_time = asset_rows['DateTime'].min().replace(hour=5, minute=30)
+                end_time = start_time + timedelta(days=1)
 
-        # Concatenate the data for this asset horizontally to the output DataFrame
-        output_df = pd.concat([output_df, data_for_asset], axis=1)
+                filtered_rows = asset_rows[(asset_rows['DateTime'] >= start_time) & (asset_rows['DateTime'] <= end_time)]
+                filtered_rows = filtered_rows.head(49)
 
-    # Generate Date, Time, and Sr No columns at 30-minute intervals
-    date_list = [(start_time + timedelta(minutes=30 * i)).strftime('%d %b %Y') for i in range(49)]
-    time_list = [(start_time + timedelta(minutes=30 * i)).strftime('%I:%M %p') for i in range(49)]
-    sr_no_list = list(range(1, 50))
+                data_for_asset = filtered_rows.iloc[:, required_column_indices].values
+                data_for_asset = pd.DataFrame(data_for_asset, columns=required_column_names)
 
-    # Insert Date, Time, and Sr No columns into the final output DataFrame
-    output_df.insert(0, 'Date', date_list)
-    output_df.insert(1, 'Time', time_list)
-    output_df.insert(2, 'Sr No', sr_no_list)
+                if len(data_for_asset) < 49:
+                    missing_rows = 49 - len(data_for_asset)
+                    data_for_asset = pd.concat([
+                        data_for_asset,
+                        pd.DataFrame(0, index=range(missing_rows), columns=required_column_names)
+                    ], ignore_index=True)
+            else:
+                data_for_asset = pd.DataFrame(0, index=range(49), columns=required_column_names)
 
-    # Add an empty 'Code' column at the end
-    output_df['Code'] = 0
+            data_for_asset.columns = [f"{asset_name}_{col}" for col in required_column_names]
+            output_df = pd.concat([output_df, data_for_asset], axis=1)
 
-    # Fill NaN values in the DataFrame with 0
-    output_df = output_df.fillna(0)
+        # Generate Date, Time, Sr No columns for this file
+        date_list = [(start_time + timedelta(minutes=30 * i)).strftime('%d %b %Y') for i in range(49)]
+        time_list = [(start_time + timedelta(minutes=30 * i)).strftime('%I:%M %p') for i in range(49)]
+        sr_no_list = list(range(1, 50))
 
+        output_df.insert(0, 'Date', date_list)
+        output_df.insert(1, 'Time', time_list)
+        output_df.insert(2, 'Sr No', sr_no_list)
+        output_df['Code'] = 0
 
-    # Save the processed data using ExcelWriter
+       
+
+        master_df = pd.concat([master_df, output_df], ignore_index=True)
+
+    # Final sorting and saving
+    master_df['DateTime_Sort'] = pd.to_datetime(master_df['Date'] + ' ' + master_df['Time'], format='%d %b %Y %I:%M %p')
+    master_df = master_df.sort_values(by='DateTime_Sort').drop(columns=['DateTime_Sort'])
+
     with pd.ExcelWriter(test_file_path, engine='openpyxl') as writer:
-        output_df.to_excel(writer, index=False)
+        master_df.to_excel(writer, index=False)
 
-    # Display success message when all files are processed
-    st.info(f"Data has been processed and saved")
+    st.success(f"Processed {len(excel_files)} files and saved")
 
-# Create a button to trigger the process
-if st.button('Preprocess Data'):
-    process_data()
+
+# Streamlit UI
+if st.button('Preprocess All Files'):
+    process_all_files()
+
 
 
 
 
 #################### Classification    ###############################
 
-# 🚀 Install if not already done:
-# pip install pandas numpy scikit-learn xgboost imbalanced-learn tensorflow joblib streamlit openpyxl
 
 import streamlit as st
 import numpy as np
@@ -354,46 +326,6 @@ import numpy as np
 def set_random_seed(seed=42):
     np.random.seed(seed)
 
-# Define the training function
-def train_model(training_file_path):
-    def load_data(file_path):
-        df = pd.read_excel(file_path, sheet_name="Time")
-        X = df.iloc[:, 1:-1].values
-        y = df.iloc[:, -1].values
-        return X, y
-
-    def preprocess_data(X, y):
-        mask = y < 90  # Time to breakdown less than 72 hours
-        X_filtered = X[mask]
-        y_filtered = y[mask]
-        
-        # Use a fixed random_state to ensure reproducibility
-        X_train, X_val, y_train, y_val = train_test_split(X_filtered, y_filtered, test_size=0.01, random_state=42)
-        scaler = StandardScaler()                                                                                                        
-        X_train_scaled = scaler.fit_transform(X_train)
-        X_val_scaled = scaler.transform(X_val)
-        joblib.dump(scaler, os.path.join(model_folder_path, 'scaler_time_changed.pkl'))
-        return X_train_scaled, X_val_scaled, y_train, y_val
-
-    def build_model(input_shape):
-        model = Sequential()
-        model.add(Dense(128, input_dim=input_shape, activation='relu'))
-        model.add(Dense(64, activation='relu'))
-        model.add(Dense(32, activation='relu'))
-        model.add(Dense(1, activation='linear'))
-        model.compile(optimizer='adam', loss='mean_squared_error', metrics=['mae'])
-        return model
-
-    # Set random seed for reproducibility
-    set_random_seed()
-
-    X, y = load_data(training_file_path)
-    X_train, X_val, y_train, y_val = preprocess_data(X, y)
-    model = build_model(X_train.shape[1])
-
-    early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
-    model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=100, batch_size=32, callbacks=[early_stopping])
-    model.save(os.path.join(model_folder_path, 'trained_time_changed.h5'))
 
 # Define the prediction function
 def predict_time(test_file_path):
@@ -536,52 +468,7 @@ def set_random_seed(seed=42):
     np.random.seed(seed)
     tf.random.set_seed(seed)
 
-# Function to train the LSTM autoencoder model
-def train_lstm_autoencoder_model(training_file_path, model_folder_path):
-    set_random_seed()
 
-    # Load and preprocess training data
-    df = pd.read_excel(training_file_path)
-    #df = df.dropna()
-
-    
-    column_names_train = df.columns[1:-1]
-    X = df[[col for col in column_names_train if not col.endswith(('_d2', '_t2'))]]
-
-    # Normalize data
-    scaler = MinMaxScaler()
-    X_scaled = scaler.fit_transform(X)
-
-    # Save the scaler
-    joblib.dump(scaler, os.path.join(model_folder_path, "lstm_auto_scaler1.pkl"))
-
-    # Reshape to 3D for LSTM (samples, time_steps, features)
-    TIME_STEPS = 10
-    def create_sequences(data, time_steps=TIME_STEPS):
-        seqs = []
-        for i in range(len(data) - time_steps):
-            seqs.append(data[i:i + time_steps])
-        return np.array(seqs)
-    
-    X_seq = create_sequences(X_scaled)
-
-    # Define LSTM Autoencoder model
-    inputs = Input(shape=(TIME_STEPS, X_seq.shape[2]))
-    encoded = LSTM(64, activation="relu", return_sequences=False)(inputs)
-    decoded = RepeatVector(TIME_STEPS)(encoded)
-    decoded = LSTM(64, activation="relu", return_sequences=True)(decoded)
-    decoded = TimeDistributed(Dense(X_seq.shape[2]))(decoded)
-
-    autoencoder = Model(inputs, decoded)
-    autoencoder.compile(optimizer="adam", loss=tf.keras.losses.MeanSquaredError())
-
-    # Train the model
-    autoencoder.fit(X_seq, X_seq, epochs=20, batch_size=64, shuffle=True)
-
-    # Save model
-    autoencoder.save(os.path.join(model_folder_path, "lstm_auto_model1.h5"))                    
-
-    st.success("LSTM Autoencoder training completed and model saved!")
 
 def predict_lstm_autoencoder(test_file_path, model_folder_path):
     set_random_seed()
@@ -633,7 +520,7 @@ def predict_lstm_autoencoder(test_file_path, model_folder_path):
                 sensor_dict[sensor_id]["params"].add(feature_name)
 
     # Filter only sensors with anomaly count > 30
-    filtered_dict = {sensor: info for sensor, info in sensor_dict.items() if info["count"] > 15}
+    filtered_dict = {sensor: info for sensor, info in sensor_dict.items() if info["count"] > 5}
 
     if not filtered_dict:
         st.session_state["check_bd_clicked"] = False
@@ -680,38 +567,20 @@ if st.button("Check abnormality in sensors"):
 
 
 
-
-
-
-
-
-
-    
-
-
-
-
-
-
-
-
-
 #..........................................Trend..............................
-
-
-
-
-
-
+import os
+import pandas as pd
 import matplotlib.pyplot as plt
+import streamlit as st
 
+# -------------------------------
 # Mapping for parameters to descriptive names
 parameter_mapping = {
     'a2': 'Acceleration',
     'av2': 'Axial Velocity',
     'vv2': 'Vertical Velocity',
     'hv2': 'Horizontal Velocity',
-    't2': 'Temperature'
+    't2': 'Temperature',
 }
 
 # Column types with "All" option for UI
@@ -720,41 +589,60 @@ column_types_ui = ['All'] + list(parameter_mapping.values())
 # Reverse mapping for internal logic
 reverse_parameter_mapping = {v: k for k, v in parameter_mapping.items()}
 
+# -------------------------------
 # Streamlit UI
 st.title("Trend Visualization for Sensor Data")
 
-# Validate files
+
+# -------------------------------
+# Validate file paths
 if not os.path.exists(test_file_path) or not os.path.exists(threshold_file_path):
     st.error("Required files not found! Ensure the test and threshold file paths are correct.")
 else:
     try:
-        # Load test and threshold data
+        # Load Excel files
         test_df = pd.read_excel(test_file_path)
         threshold_df = pd.read_excel(threshold_file_path)
 
         if test_df.empty:
             st.warning("NO DATA in the test file.")
         else:
-            # Extract alternate sensor names
+            # Map asset to sensor name
             sensor_mapping = threshold_df[['Asset name', 'Sensor name']].drop_duplicates()
             asset_to_sensor = dict(zip(sensor_mapping['Asset name'], sensor_mapping['Sensor name']))
 
-            # UI filter with alternate names
+            # UI for sensor selection
             sensor_names = list(asset_to_sensor.values())
             selected_sensor_name = st.selectbox("Select the sensor", sensor_names, index=0)
-
-            # Map selected sensor name back to the asset name
             selected_asset = next(asset for asset, sensor in asset_to_sensor.items() if sensor == selected_sensor_name)
 
             selected_column_ui = st.selectbox("Select parameter", column_types_ui, index=0)
 
-            # Map the selected UI parameter back to its internal name
             if selected_column_ui == 'All':
                 selected_column = 'All'
             else:
                 selected_column = reverse_parameter_mapping[selected_column_ui]
 
-            # Check if test data contains the required columns
+            # Combine and parse date + time
+            test_df['Datetime'] = pd.to_datetime(test_df['Date'] + ' ' + test_df['Time'], format='%d %b %Y %I:%M %p')
+
+            # Extract available dates
+            available_dates = sorted(test_df['Datetime'].dt.date.unique())
+            available_dates_str = [date.strftime('%d %b %Y') for date in available_dates]
+            available_dates_str_with_all = ["All"] + available_dates_str
+
+            # UI: select specific date or all
+            selected_date_str = st.selectbox("Select Date", available_dates_str_with_all)
+
+            if selected_date_str != "All":
+                selected_date = pd.to_datetime(selected_date_str, format='%d %b %Y').date()
+                filtered_df = test_df[test_df["Datetime"].dt.date == selected_date]
+            else:
+                filtered_df = test_df
+
+            datetime_data = filtered_df["Datetime"]
+
+            # Prepare column names
             if selected_column == 'All':
                 asset_columns = [f"{selected_asset}_{param}" for param in parameter_mapping.keys()]
             else:
@@ -762,34 +650,27 @@ else:
 
             if not all(col in test_df.columns for col in asset_columns):
                 st.warning("Selected asset or columns not found in the test dataset.")
+            elif filtered_df.empty:
+                st.warning("No data available for the selected date.")
             else:
-                # Extract relevant data for the selected asset and column type(s)
-                time_data = test_df['Time']
-                date_data = test_df['Date']
-                datetime_data = pd.to_datetime(date_data + ' ' + time_data, format='%d %b %Y %I:%M %p')
-
-                # Determine start and end dates for the X-axis label
-                start_date = datetime_data.min().strftime('%d-%m-%Y')
-                end_date = datetime_data.max().strftime('%d-%m-%Y')
-
-                # Generate hourly tick labels
+                # Plot configuration
+                start_date = datetime_data.min().strftime('%d %b %Y')
+                end_date = datetime_data.max().strftime('%d %b %Y')
                 hourly_ticks = pd.date_range(start=datetime_data.min(), end=datetime_data.max(), freq='H')
 
-                # Prepare the plot
                 plt.figure(figsize=(12, 6))
 
                 if selected_column == 'All':
-                    # Plot all parameters for the selected asset
                     for param, display_name in parameter_mapping.items():
                         column_name = f"{selected_asset}_{param}"
-                        column_data = test_df[column_name]
+                        column_data = filtered_df[column_name]
                         plt.plot(datetime_data, column_data, linestyle='-', label=display_name)
                 else:
-                    # Plot the specific parameter
-                    column_data = test_df[f"{selected_asset}_{selected_column}"]
+                    column_name = f"{selected_asset}_{selected_column}"
+                    column_data = filtered_df[column_name]
                     plt.plot(datetime_data, column_data, linestyle='-', label=selected_column_ui)
 
-                    # Get threshold values for the selected asset and parameter
+                    # Plot thresholds
                     threshold_row = threshold_df[
                         (threshold_df['Asset name'] == selected_asset) &
                         (threshold_df['Parameter'] == selected_column)
@@ -797,24 +678,22 @@ else:
                     if not threshold_row.empty:
                         caution_value = threshold_row['Caution'].values[0]
                         warning_value = threshold_row['Warning'].values[0]
-
-                        # Add horizontal lines for caution and warning thresholds
                         plt.axhline(y=caution_value, color='orange', linestyle='--', label="Caution Threshold")
                         plt.axhline(y=warning_value, color='red', linestyle='--', label="Warning Threshold")
 
-                # Configure the plot
                 plt.xlabel(f"Time ({start_date} - {end_date})")
                 plt.ylabel("Values")
                 plt.title(f"Trend for {selected_sensor_name} - {selected_column_ui}")
                 plt.xticks(hourly_ticks, [tick.strftime('%I %p') for tick in hourly_ticks], rotation=45)
                 plt.grid(True)
-                plt.legend(loc='upper left')  # Place the legend in the top-left corner
+                plt.legend(loc='upper left')
                 plt.tight_layout()
 
-                # Display the plot
+                # Show plot
                 st.pyplot(plt)
 
-                # Add functionality for threshold crossing counts
+                # -------------------------------
+                # Threshold crossing count
                 warning_counts = {}
                 caution_counts = {}
 
@@ -825,50 +704,30 @@ else:
                         (threshold_df['Parameter'] == param)
                     ]
 
-                    if not threshold_row.empty:
+                    if not threshold_row.empty and column_name in filtered_df.columns:
                         caution_value = threshold_row['Caution'].values[0]
                         warning_value = threshold_row['Warning'].values[0]
-
-                        # Count how many times the parameter crosses caution and warning thresholds
-                        caution_counts[display_name] = (test_df[column_name] > caution_value).sum()
-                        warning_counts[display_name] = (test_df[column_name] > warning_value).sum()
+                        caution_counts[display_name] = (filtered_df[column_name] > caution_value).sum()
+                        warning_counts[display_name] = (filtered_df[column_name] > warning_value).sum()
                     else:
                         caution_counts[display_name] = 0
                         warning_counts[display_name] = 0
 
-                
-                
-                # Combine threshold crossing counts into a single table
-                combined_df = pd.DataFrame(
-                    {
-                        "Parameter": list(parameter_mapping.values()),
-                        "Caution Crossings": [caution_counts[display_name] for display_name in parameter_mapping.values()],
-                        "Warning Crossings": [warning_counts[display_name] for display_name in parameter_mapping.values()]
-                    }
-                )
-                
-               # Create a new table with Sensor Name displayed only once
+                # Create threshold count table
+                combined_df = pd.DataFrame({
+                    "Parameter": list(parameter_mapping.values()),
+                    "Caution Crossings": [caution_counts[p] for p in parameter_mapping.values()],
+                    "Warning Crossings": [warning_counts[p] for p in parameter_mapping.values()]
+                })
+
                 sensor_row = pd.DataFrame({"Parameter": ["Sensor Name"], "Caution Crossings": [selected_sensor_name], "Warning Crossings": [""]})
                 combined_df = pd.concat([sensor_row, combined_df], ignore_index=True)
 
-                # Adjust the column names
-                combined_df.columns = ["Parameter", "Caution Crossings", "Warning Crossings"]
-
-                # Display the combined table
-
-                st.markdown("### Threshold Crossing frequency")
+                st.markdown("### Threshold Crossing Frequency")
                 st.table(combined_df.T)
 
     except Exception as e:
         st.error(f"Error processing the files: {e}")
-
-
-
-
-
-
-
-
 
 
 
