@@ -31,7 +31,7 @@ excel_file_path = os.path.join(MAINFOLDER, "Breakdownrecords.xlsx")  # Recording
 folderpath = os.path.join(MAINFOLDER, "TemporaryData")  # Temporary dump files collector
 threshold_file_path = os.path.join(MAINFOLDER,"Thresholds.xlsx") #
 
-logo_path=os.path.join(MAINFOLDER,"Logo","logo_wipro_cropped.jpg")
+logo_path=os.path.join(MAINFOLDER,"Logo","logo_wipro_cropped.png")
 
 # Define the path to save models within the main folder
 model_folder_path = os.path.join(MAINFOLDER, "Models")
