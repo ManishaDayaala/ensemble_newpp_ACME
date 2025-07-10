@@ -50,7 +50,7 @@ with open(logo_path, "rb") as image_file:
 
 # Define the sizes you want
 logo_width = 280         # Adjust logo width
-title_font_size = 30    # Adjust title font size
+title_font_size = 38    # Adjust title font size
 
 
 # Display logo and title side by side
