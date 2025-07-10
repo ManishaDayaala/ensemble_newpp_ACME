@@ -12,6 +12,8 @@ import random
 import tensorflow as tf
 from tensorflow.keras.models import load_model
 import joblib
+import sys
+import base64
 
 # Set a random seed for reproducibility
 def set_random_seed(seed_value=42):
@@ -29,6 +31,8 @@ excel_file_path = os.path.join(MAINFOLDER, "Breakdownrecords.xlsx")  # Recording
 folderpath = os.path.join(MAINFOLDER, "TemporaryData")  # Temporary dump files collector
 threshold_file_path = os.path.join(MAINFOLDER,"Thresholds.xlsx") #
 
+logo_path=os.path.join(MAINFOLDER,"Logo","logo_wipro_cropped.jpg")
+
 # Define the path to save models within the main folder
 model_folder_path = os.path.join(MAINFOLDER, "Models")
 
@@ -40,10 +44,28 @@ if "bd_output" not in st.session_state:
 
 uploaded_files = []  # List to keep track of uploaded files
 
-# Streamlit UI
-st.title("Breakdown Predictor-ACME-1(CRP)")
-st.markdown("Upload your files, and they will be preprocessed accordingly.")
+# Read and encode the image
+with open(logo_path, "rb") as image_file:
+    encoded_image = base64.b64encode(image_file.read()).decode()
 
+# Define the sizes you want
+logo_width = 200         # Adjust logo width
+title_font_size = 50    # Adjust title font size
+
+
+# Display logo and title side by side
+st.markdown(
+    f"""
+    <div style="display: flex; align-items: center;">
+        <img src="data:image/png;base64,{encoded_image}" width="{logo_width}" style="margin-right: 15px;">
+        <span style="font-size: {title_font_size}px; font-weight: bold;">Breakdown Predictor</span>
+    </div>
+    <br><br>  <!-- Adds 1 line breaks -->
+    """,
+    unsafe_allow_html=True
+)
+
+st.markdown("Upload your files, and they will be preprocessed accordingly.")
 
 # Show status
 status_placeholder = st.empty()
