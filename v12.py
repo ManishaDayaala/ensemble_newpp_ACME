@@ -131,6 +131,10 @@ if st.button("Save Files"):
 
 ###################### DATA PREPROCESSING   ############################
 
+
+
+
+
 import os
 import pandas as pd
 import numpy as np
@@ -156,7 +160,7 @@ def process_all_files():
     required_column_indices = [5, 8, 11, 14, 17]  # 0-based indices for F, I, L, O, R, U
     required_column_names = ['a2', 'vv2', 'av2', 'hv2', 't2']
 
-     # Master output DataFrame
+    # Master output DataFrame
     master_df = pd.DataFrame()
 
     # Process each file
@@ -189,6 +193,9 @@ def process_all_files():
                 data_for_asset = filtered_rows.iloc[:, required_column_indices].values
                 data_for_asset = pd.DataFrame(data_for_asset, columns=required_column_names)
 
+                # Fill NaNs with 0
+                data_for_asset = data_for_asset.fillna(0)
+
                 if len(data_for_asset) < 49:
                     missing_rows = 49 - len(data_for_asset)
                     data_for_asset = pd.concat([
@@ -211,13 +218,17 @@ def process_all_files():
         output_df.insert(2, 'Sr No', sr_no_list)
         output_df['Code'] = 0
 
-       
+        # Fill NaNs with 0 for output
+        output_df = output_df.fillna(0)
 
         master_df = pd.concat([master_df, output_df], ignore_index=True)
 
     # Final sorting and saving
     master_df['DateTime_Sort'] = pd.to_datetime(master_df['Date'] + ' ' + master_df['Time'], format='%d %b %Y %I:%M %p')
     master_df = master_df.sort_values(by='DateTime_Sort').drop(columns=['DateTime_Sort'])
+
+    # Final NaN handling
+    master_df = master_df.fillna(0)
 
     with pd.ExcelWriter(test_file_path, engine='openpyxl') as writer:
         master_df.to_excel(writer, index=False)
@@ -228,6 +239,7 @@ def process_all_files():
 # Streamlit UI
 if st.button('Preprocess All Files'):
     process_all_files()
+
 
 
 
